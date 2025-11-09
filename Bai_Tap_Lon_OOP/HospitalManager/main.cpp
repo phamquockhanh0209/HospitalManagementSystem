@@ -12,6 +12,8 @@
 #include <mutex>
 #include <iomanip>
 #include <cctype>
+#include <windows.h>      // CHO GetModuleFileNameA
+#define MAX_PATH 260
 using namespace std;
 
 // ============= CAU HINH GIA DICH VU =============
@@ -36,7 +38,11 @@ const unordered_map<string, vector<string>> chuyenKhoaToBenhLy = {
 
 //Hàm lấy đường dẫn project
 string getProjectPath() {
-    return "C:\\Users\\quoc_\\Downloads\\OOP\\Bai_Tap_Lon_OOP\\HospitalManager\\";
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH); // Lấy đường dẫn file .exe
+    string path = buffer;
+    size_t pos = path.find_last_of("\\/");
+    return path.substr(0, pos + 1); // Trả về thư mục chứa .exe
 }
 
 // Chuyển chuỗi sang chữ thường
@@ -138,7 +144,7 @@ bool xacNhan(const string& message) {
     cout << "[?] " << message << " (y/n): ";
     char c;
     cin >> c;
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.ignore(999999, '\n');  
     return (c == 'y' || c == 'Y');
 }
 
@@ -344,7 +350,7 @@ public:
              const vector<string>& dsBenhLy, bool coSoHoNgheo)
         : Nguoi(hoTen, gioiTinh, ngaySinh, thangSinh, namSinh, diaChi),
           maBN(maBN), danhSachBenhLy(dsBenhLy), trangThaiNhapVien(true), coSoHoNgheo(coSoHoNgheo) {
-        // Ki?m tra t?t c? b?nh ly co h?p l? khong
+        // Kiem tra tat ca benh ly co hop le khong
         for (const auto& bl : dsBenhLy) {
             timKhoaChoBenh(bl);
         }
@@ -353,8 +359,8 @@ public:
     const vector<string>& getDanhSachBenhLy() const { return danhSachBenhLy; }
 
     void themBenhLy(const string& benhLy) {
-        timKhoaChoBenh(benhLy); // Ki?m tra h?p l?
-        // Ki?m tra trung
+        timKhoaChoBenh(benhLy); // Kiem tra hop le
+        // Kiem tra trung
         if (find(danhSachBenhLy.begin(), danhSachBenhLy.end(), benhLy) != danhSachBenhLy.end()) {
             throw runtime_error("Benh ly da ton tai!");
         }
@@ -399,7 +405,7 @@ public:
         cout << "| Ho ten      : " << left << setw(25) << hoTen << "|\n";
         cout << "| Tuoi        : " << left << setw(25) << tinhTuoi() << "|\n";
         
-        // Hi?n th? danh sach b?nh ly
+        // Hien thi danh sach benh ly
         if (danhSachBenhLy.empty()) {
             cout << "| Benh ly     : " << left << setw(25) << "Khong co" << "|\n";
         } else {
@@ -636,7 +642,7 @@ public:
         return (it != dsPhong.end()) ? it->second : nullptr;
     }
 
-    // HAM M?I: Qu?n ly b?nh ly c?a b?nh nhan
+    // HAM: Quan ly benh ly cua benh nhan
     void quanLyBenhLyBenhNhan(const string& maBN) {
         auto bn = timBenhNhan(maBN);
         if (!bn) throw runtime_error("Khong tim thay benh nhan!");
@@ -645,7 +651,7 @@ public:
         do {
             cout << "\n=== QUAN LY BENH LY CUA BENH NHAN " << bn->getHoTen() << " ===\n";
             
-            // Hi?n th? danh sach b?nh ly hi?n t?i
+            // Hien thi danh sach benh ly 
             const auto& dsBenhLy = bn->getDanhSachBenhLy();
             cout << "Benh ly hien tai:\n";
             if (dsBenhLy.empty()) {
@@ -787,7 +793,7 @@ public:
     }
 
     void phanCong(shared_ptr<BenhNhan> bn, shared_ptr<BacSi> bs, shared_ptr<PhongBenh> phong) {
-        // Ki?m tra xem bac si co phu h?p v?i it nh?t 1 b?nh ly khong
+        // Kiem tra xem bac si co phu hop voi it nhat 1 benh ly khong
         const auto& dsBenhLy = bn->getDanhSachBenhLy();
         if (dsBenhLy.empty()) {
             throw runtime_error("Benh nhan chua co benh ly nao!");
@@ -1215,7 +1221,7 @@ void menu() {
                 
                 string dc = nhapChuoiKhongRong("Dia chi: ");
                 
-                // Nh?p nhi?u b?nh ly
+                // Nhap nhieu benh ly
                 cout << "\n--- DANH SACH BENH LY HOP LE ---\n";
                 int count = 1;
                 for (const auto& pair : chuyenKhoaToBenhLy) {
@@ -1373,7 +1379,7 @@ void menu() {
     
                 HoaDon hd(bn, soNgay);
     
-                // Ch?n phuong th?c thanh toan
+                // Chon phuong thuc thanh toan
                 cout << "\n=== CHON PHUONG THUC THANH TOAN ===\n";
                 cout << "1. Tien mat\n";
                 cout << "2. Chuyen khoan (voi ma QR)\n";

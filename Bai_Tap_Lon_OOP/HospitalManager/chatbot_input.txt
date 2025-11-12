@@ -1,0 +1,1 @@
+cd "c:\Users\quoc_\Downloads\OOP\Bai_Tap_Lon_OOP\HospitalManager_1\" && g++ main.cpp -o main && "c:\Users\quoc_\Downloads\OOP\Bai_Tap_Lon_OOP\HospitalManager_1\"main

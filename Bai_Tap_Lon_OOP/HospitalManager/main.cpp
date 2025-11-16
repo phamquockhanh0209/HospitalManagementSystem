@@ -12,6 +12,9 @@
 #include <limits>        // thư viện giới hạn số học(numeric_limits)
 #include <mutex>         // thư viện đa luồng(mutex, call_once, once_flag)
 #include <iomanip>       // thư viện định dạng đầu ra(iomanip)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>     // CHO GetModuleFileNameA
 #include <conio.h>       // thư viện _getch()
 #define MAX_PATH 260
@@ -190,6 +193,34 @@ int nhapSoNguyen(const string &prompt, int min, int max)
     }
 }
 
+// Nhap so thuc trong khoang
+double nhapSoThuc(const string &prompt, double min, double max)
+{
+    double value;
+    string input;
+    while (true)
+    {
+        cout << prompt;
+        getline(cin, input);
+        try
+        {
+            size_t pos;
+            value = stod(input, &pos);
+            if (pos != input.size())
+                throw invalid_argument("Invalid number format");
+            if (value >= min && value <= max)
+            {
+                return value;
+            }
+            cout << "[!] Gia tri phai tu " << min << " den " << max << "!\n";
+        }
+        catch (const exception &e)
+        {
+            cout << "[!] Loi nhap so thuc: " << e.what() << " Vui long nhap lai.\n";
+        }
+    }
+}
+
 // Nhap gioi tinh
 string nhapGioiTinh()
 {
@@ -208,7 +239,7 @@ bool xacNhan(const string &message)
     cout << "[?] " << message << " (y/n): ";
     char c;
     cin >> c;
-    cin.ignore(999999, '\n');
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
     return (c == 'y' || c == 'Y');
 }
 
@@ -216,6 +247,9 @@ bool xacNhan(const string &message)
 class BenhNhan;
 class BacSi;
 class PhongBenh;
+class HoSoBenhAn;
+class Thuoc;
+class CoSoVatChat;
 
 // ============= LOP NGUOI =============
 class Nguoi
@@ -445,6 +479,7 @@ private:
     bool trangThaiNhapVien;
     bool coBHYT;
     vector<DichVu> dichVuSuDung;
+    vector<shared_ptr<HoSoBenhAn>> dsHoSoBenhAn;
 
 public:
     BenhNhan(const string &maBN, const string &hoTen, const string &gioiTinh,
@@ -560,6 +595,13 @@ public:
                 dv = dv.substr(0, dv.size() - 2);
             cout << left << setw(25) << dv << "|\n";
         }
+        cout << "| Ho so benh an : ";
+        if (dsHoSoBenhAn.empty())
+            cout << left << setw(25) << "Chua co" << "|\n";
+        else
+        {
+            cout << left << setw(25) << ("Co " + to_string(dsHoSoBenhAn.size()) + " ho so") << "|\n";
+        }
         cout << "+------------------------------------------+\n";
     }
 
@@ -607,6 +649,9 @@ public:
             tong += dv.getGia();
         return tong;
     }
+
+    void themHoSoBenhAn(shared_ptr<HoSoBenhAn> hsba) { dsHoSoBenhAn.push_back(hsba); }
+    const vector<shared_ptr<HoSoBenhAn>> &getHoSoBenhAn() const { return dsHoSoBenhAn; }
 };
 
 // ============= DINH NGHIA PHUONG THUC BAC SI =============
@@ -712,6 +757,127 @@ public:
     }
 };
 
+// ============= QUAN LY THUOC =============
+class Thuoc
+{
+private:
+    string maThuoc;
+    string tenThuoc;
+    double gia;
+    int tonKho;
+    string donVi; // viên, lọ, ống
+public:
+    Thuoc(string ma, string ten, double g, int ton, string dv)
+        : maThuoc(ma), tenThuoc(ten), gia(g), tonKho(ton), donVi(dv)
+    {
+        if (gia < 0 || ton < 0)
+            throw runtime_error("Gia hoac ton kho khong hop le!");
+    }
+    string getMa() const { return maThuoc; }
+    string getTen() const { return tenThuoc; }
+    double getGia() const { return gia; }
+    int getTonKho() const { return tonKho; }
+    string getDonVi() const { return donVi; }
+    void giamTonKho(int soLuong)
+    {
+        if (soLuong > tonKho)
+            throw runtime_error("Khong du thuoc trong kho!");
+        tonKho -= soLuong;
+    }
+    string toString() const
+    {
+        return tenThuoc + " (" + maThuoc + ") - " + to_string(tonKho) + " " + donVi + " - " + to_string(static_cast<long long>(gia)) + " VND";
+    }
+    string toCSV() const
+    {
+        return "Thuoc," + maThuoc + "," + tenThuoc + "," + to_string(static_cast<long long>(gia)) + "," + to_string(tonKho) + "," + donVi;
+    }
+};
+
+// ============= CO SO VAT CHAT =============
+class CoSoVatChat
+{
+private:
+    string maCSVC;
+    string ten;
+    string loai; // "MRI", "CT", "May tho", "Phong mo", "ICU"
+    bool dangSuDung;
+    int soLuong;
+
+public:
+    CoSoVatChat(string ma, string t, string l, int sl)
+        : maCSVC(ma), ten(t), loai(l), dangSuDung(false), soLuong(sl)
+    {
+        if (sl <= 0)
+            throw runtime_error("So luong phai > 0!");
+    }
+    string getMa() const { return maCSVC; }
+    string getTen() const { return ten; }
+    string getLoai() const { return loai; }
+    bool isDangSuDung() const { return dangSuDung; }
+    void datSuDung(bool sd) { dangSuDung = sd; }
+    int getSoLuong() const { return soLuong; }
+    string toString() const
+    {
+        return ten + " [" + loai + "] - SL: " + to_string(soLuong) + (dangSuDung ? " (Dang dung)" : " (San sang)");
+    }
+    string toCSV() const
+    {
+        return "CSVC," + maCSVC + "," + ten + "," + loai + "," + to_string(soLuong) + "," + (dangSuDung ? "1" : "0");
+    }
+};
+
+// ============= HO SO BENH AN =============
+class HoSoBenhAn
+{
+private:
+    string maHSBA;
+    string maBN;
+    string chanDoan;
+    string phacDoDieuTri;
+    vector<pair<shared_ptr<Thuoc>, int>> dsThuocKeDon; // thuốc + số lượng
+    vector<string> dsXetNghiem;
+    string ngayLap;
+    shared_ptr<CoSoVatChat> csvcSuDung;
+
+public:
+    HoSoBenhAn(string ma, string mbn, string cd, string pddt, string nl)
+        : maHSBA(ma), maBN(mbn), chanDoan(cd), phacDoDieuTri(pddt), ngayLap(nl) {}
+
+    void keDonThuoc(shared_ptr<Thuoc> thuoc, int soLuong)
+    {
+        if (soLuong <= 0)
+            throw runtime_error("So luong thuoc phai > 0!");
+        thuoc->giamTonKho(soLuong);
+        dsThuocKeDon.push_back({thuoc, soLuong});
+    }
+    void themXetNghiem(const string &xn) { dsXetNghiem.push_back(xn); }
+    void suDungCSVC(shared_ptr<CoSoVatChat> csvc)
+    {
+        csvcSuDung = csvc;
+        csvc->datSuDung(true);
+    }
+
+    string getMaHSBA() const { return maHSBA; }
+    string getChanDoan() const { return chanDoan; }
+    string getPhacDo() const { return phacDoDieuTri; }
+    const vector<pair<shared_ptr<Thuoc>, int>> &getKeDon() const { return dsThuocKeDon; }
+    const vector<string> &getXetNghiem() const { return dsXetNghiem; }
+
+    string toString() const
+    {
+        string s = "HSBA: " + maHSBA + " | Chan doan: " + chanDoan + "\n";
+        s += "Phac do: " + phacDoDieuTri + "\n";
+        if (!dsThuocKeDon.empty())
+        {
+            s += "Ke don:\n";
+            for (const auto &p : dsThuocKeDon)
+                s += " - " + p.first->getTen() + ": " + to_string(p.second) + " " + p.first->getDonVi() + "\n";
+        }
+        return s;
+    }
+};
+
 // ============= LOP QUAN LY BENH VIEN (SINGLETON CAI TIEN) =============
 class QuanLyBenhVien
 {
@@ -722,6 +888,9 @@ private:
     unordered_map<string, shared_ptr<BenhNhan>> dsBN;
     unordered_map<string, shared_ptr<BacSi>> dsBS;
     unordered_map<int, shared_ptr<PhongBenh>> dsPhong;
+    unordered_map<string, shared_ptr<Thuoc>> dsThuoc;
+    unordered_map<string, shared_ptr<CoSoVatChat>> dsCSVC;
+    unordered_map<string, shared_ptr<HoSoBenhAn>> dsHSBA;
 
     QuanLyBenhVien()
     {
@@ -764,6 +933,9 @@ public:
                   { instance.reset(new QuanLyBenhVien()); });
         return *instance;
     }
+    string taoMaThuoc();
+    string taoMaCSVC();
+    string taoMaHSBA();
 
     ~QuanLyBenhVien() = default;
     QuanLyBenhVien(const QuanLyBenhVien &) = delete;
@@ -1156,6 +1328,10 @@ public:
             outFile << p.second->toCSV() << '\n';
         for (const auto &p : dsBN)
             outFile << p.second->toCSV() << '\n';
+        for (const auto &p : dsThuoc)
+            outFile << p.second->toCSV() << '\n';
+        for (const auto &p : dsCSVC)
+            outFile << p.second->toCSV() << '\n';
         outFile.close();
 
         // Sao chép lên Desktop
@@ -1243,6 +1419,17 @@ public:
                     {
                         dsBN[bn->getMaBN()] = bn;
                     }
+                }
+                else if (data[0] == "Thuoc" && data.size() >= 6)
+                {
+                    auto t = make_shared<Thuoc>(data[1], data[2], stod(data[3]), stoi(data[4]), data[5]);
+                    dsThuoc[t->getMa()] = t;
+                }
+                else if (data[0] == "CSVC" && data.size() >= 6)
+                {
+                    auto c = make_shared<CoSoVatChat>(data[1], data[2], data[3], stoi(data[4]));
+                    c->datSuDung(data[5] == "1");
+                    dsCSVC[c->getMa()] = c;
                 }
             }
             catch (const exception &e)
@@ -1540,10 +1727,171 @@ public:
             cout << "-------------------------------------------\n";
         }
     }
+    const unordered_map<string, shared_ptr<BacSi>> &getDsBS() const { return dsBS; }
+    const unordered_map<string, shared_ptr<BenhNhan>> &getDsBN() const { return dsBN; }
+    const unordered_map<string, shared_ptr<Thuoc>> &getDsThuoc() const { return dsThuoc; }
+    unordered_map<string, shared_ptr<Thuoc>> &getDsThuoc() { return dsThuoc; }
+    const unordered_map<string, shared_ptr<CoSoVatChat>> &getDsCSVC() const { return dsCSVC; }
+    unordered_map<string, shared_ptr<CoSoVatChat>> &getDsCSVC() { return dsCSVC; }
+    const unordered_map<string, shared_ptr<HoSoBenhAn>> &getDsHSBA() const { return dsHSBA; }
+    unordered_map<string, shared_ptr<HoSoBenhAn>> &getDsHSBA() { return dsHSBA; }
+    
+    void themThuoc(shared_ptr<Thuoc> thuoc) {
+        if (dsThuoc.find(thuoc->getMa()) != dsThuoc.end()) {
+            throw runtime_error("Ma thuoc da ton tai!");
+        }
+        dsThuoc[thuoc->getMa()] = thuoc;
+    }
+    
+    void capNhatTonKhoThuoc(const string &ma, int tonMoi) {
+        auto it = dsThuoc.find(ma);
+        if (it == dsThuoc.end()) {
+            throw runtime_error("Khong tim thay thuoc!");
+        }
+        it->second = make_shared<Thuoc>(ma, it->second->getTen(), it->second->getGia(), tonMoi, it->second->getDonVi());
+    }
+    
+    shared_ptr<HoSoBenhAn> timHSBA(const string &maHSBA) const {
+        auto it = dsHSBA.find(maHSBA);
+        return (it != dsHSBA.end()) ? it->second : nullptr;
+    }
+    
+    void themHSBA(shared_ptr<HoSoBenhAn> hsba) {
+        if (dsHSBA.find(hsba->getMaHSBA()) != dsHSBA.end()) {
+            throw runtime_error("Ma HSBA da ton tai!");
+        }
+        dsHSBA[hsba->getMaHSBA()] = hsba;
+    }
 };
 
 unique_ptr<QuanLyBenhVien> QuanLyBenhVien::instance = nullptr;
 once_flag QuanLyBenhVien::initFlag;
+
+string taoMaBS()
+{
+    QuanLyBenhVien &ql = QuanLyBenhVien::getInstance();
+    int maxNum = 0;
+
+    // Duyệt tất cả các key trong dsBS để tìm số lớn nhất
+    for (const auto &p : ql.getDsBS())
+    {
+        const string &ma = p.first;
+        if (ma.size() >= 5 && ma.substr(0, 2) == "BS") // BSxxx
+        {
+            try
+            {
+                int num = stoi(ma.substr(2));
+                if (num > maxNum)
+                    maxNum = num;
+            }
+            catch (...)
+            { /* bỏ qua mã lỗi */
+            }
+        }
+    }
+
+    // Tạo mã mới
+    char buffer[10];
+    sprintf(buffer, "BS%03d", maxNum + 1);
+    return string(buffer);
+}
+
+string taoMaBN()
+{
+    QuanLyBenhVien &ql = QuanLyBenhVien::getInstance();
+    int maxNum = 0;
+
+    for (const auto &p : ql.getDsBN())
+    {
+        const string &ma = p.first;
+        if (ma.size() >= 5 && ma.substr(0, 2) == "BN")
+        {
+            try
+            {
+                int num = stoi(ma.substr(2));
+                if (num > maxNum)
+                    maxNum = num;
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    char buffer[10];
+    sprintf(buffer, "BN%03d", maxNum + 1);
+    return string(buffer);
+}
+
+// <<<=== DÁN 3 HÀM ĐỊNH NGHĨA Ở ĐÂY ===>>>
+string QuanLyBenhVien::taoMaThuoc()
+{
+    int maxNum = 0;
+    for (const auto &p : dsThuoc)
+    {
+        if (p.first.size() >= 5 && p.first.substr(0, 2) == "TH")
+        {
+            try
+            {
+                int num = stoi(p.first.substr(2));
+                if (num > maxNum)
+                    maxNum = num;
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+    char buf[10];
+    sprintf(buf, "TH%03d", maxNum + 1);
+    return string(buf);
+}
+
+string QuanLyBenhVien::taoMaCSVC()
+{
+    int maxNum = 0;
+    for (const auto &p : dsCSVC)
+    {
+        if (p.first.size() >= 5 && p.first.substr(0, 2) == "CS")
+        {
+            try
+            {
+                int num = stoi(p.first.substr(2));
+                if (num > maxNum)
+                    maxNum = num;
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+    char buf[10];
+    sprintf(buf, "CS%03d", maxNum + 1);
+    return string(buf);
+}
+
+string QuanLyBenhVien::taoMaHSBA()
+{
+    int maxNum = 0;
+    for (const auto &p : dsHSBA)
+    {
+        if (p.first.size() >= 8 && p.first.substr(0, 4) == "HSBA")
+        {
+            try
+            {
+                int num = stoi(p.first.substr(4));
+                if (num > maxNum)
+                    maxNum = num;
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+    char buf[12];
+    sprintf(buf, "HSBA%04d", maxNum + 1);
+    return string(buf);
+}
 
 // ============= MENU CHINH =============
 void menu()
@@ -1593,10 +1941,15 @@ void menu()
         cout << "22. Kiem tra sinh nhat hom nay\n";
         cout << "23. Luu du lieu vao file\n";
         cout << "24. Chatbot ho tro 24/7\n";
+        cout << "\n--- QUAN LY Y TE ---\n";
+        cout << "25. Quan ly thuoc (xem, them, cap nhat ton)\n";
+        cout << "26. Quan ly co so vat chat\n";
+        cout << "27. Lap ho so benh an\n";
+        cout << "28. Ke don thuoc\n";
         cout << " 0. Thoat\n";
         cout << "+===========================================+\n";
 
-        ch = nhapSoNguyen("=> Chon chuc nang: ", 0, 24);
+        ch = nhapSoNguyen("=> Chon chuc nang: ", 0, 28);
 
         try
         {
@@ -1605,7 +1958,8 @@ void menu()
             case 1:
             {
                 cout << "\n=== THEM BENH NHAN MOI ===\n";
-                string maBN = nhapChuoiKhongRong("Ma BN: ");
+                string maBN = taoMaBN();
+                cout << "[+] Ma benh nhan: " << maBN << endl;
                 string hoTen = nhapChuoiKhongRong("Ho ten: ");
                 string gt = nhapGioiTinh();
 
@@ -1700,7 +2054,8 @@ void menu()
             case 6:
             {
                 cout << "\n=== THEM BAC SI MOI ===\n";
-                string maBS = nhapChuoiKhongRong("Ma BS: ");
+                string maBS = taoMaBS();
+                cout << "[+] Ma bac si: " << maBS << endl;
                 string hoTen = nhapChuoiKhongRong("Ho ten: ");
                 string gt = nhapGioiTinh();
 
@@ -1937,33 +2292,152 @@ void menu()
                 qlbv.luuVaoFile("dulieu.csv");
                 break;
             }
+                // Thay thế case 24 trong hàm menu() bằng code này:
+
             case 24:
             {
                 system("cls");
                 cout << "\n=== AI BENH VIEN CDI ===\n";
-                cout << "1. Tu van 40+ cau hoi\n";
+                cout << "1. Tu van 40+ cau hoi (Chatbot)\n";
                 cout << "2. Du doan ngay ra vien\n";
                 cout << "0. Quay lai\n";
                 int sub = nhapSoNguyen("Chon: ", 0, 2);
+
                 if (sub == 0)
                     break;
 
-                string pyFile = (sub == 1) ? "chatbot_ai.py" : "du_doan_ra_vien.py";
-                string fullPath = getProjectPath() + pyFile;
+                if (sub == 1)
+                {
+                    // GỌI HÀM CHATBOT TRỰC TIẾP
+                    qlbv.chatbotBenhVien();
+                }
+                else if (sub == 2)
+                {
+                    // Gọi file Python dự đoán
+                    string pyFile = "du_doan_ra_vien.py";
+                    string fullPath = getProjectPath() + pyFile;
 
-                if (ifstream(fullPath).good())
-                {
-                    string cmd = "python \"" + fullPath + "\"";
-                    cout << "\nDang khoi dong AI...\n";
-                    int result = system(cmd.c_str());
-                    cout << (result == 0 ? "[+] Hoan thanh!\n" : "[!] LOI Python!\n");
+                    if (ifstream(fullPath).good())
+                    {
+                        string cmd = "python \"" + fullPath + "\"";
+                        cout << "\nDang khoi dong AI du doan...\n";
+                        int result = system(cmd.c_str());
+                        cout << (result == 0 ? "[+] Hoan thanh!\n" : "[!] LOI Python!\n");
+                    }
+                    else
+                    {
+                        cout << "[!] Khong tim thay file: " << pyFile << "\n";
+                    }
+                    cout << "\nNhan Enter de tiep tuc...\n";
+                    _getch();
                 }
-                else
+                break;
+            }
+            case 25: // Quản lý thuốc
+            {
+                cout << "\n=== QUAN LY THUOC ===\n";
+                cout << "1. Xem danh sach\n";
+                cout << "2. Them thuoc moi\n";
+                cout << "3. Cap nhat ton kho\n";
+                cout << "0. Quay lai\n";
+                int c = nhapSoNguyen("Chon: ", 0, 3);
+                if (c == 1)
                 {
-                    cout << "[!] Khong tim thay file: " << pyFile << "\n";
+                    cout << "\n=== DANH SACH THUOC ===\n";
+                    int count = 0;
+                    for (const auto &p : qlbv.getDsThuoc())
+                    {
+                        cout << ++count << ". " << p.second->toString() << endl;
+                    }
+                    if (count == 0)
+                        cout << "Khong co thuoc nao.\n";
                 }
-                cout << "Nhan Enter de tiep tuc...\n";
-                _getch();
+                else if (c == 2)
+                {
+                    string ma = qlbv.taoMaThuoc();
+                    cout << "[+] Ma thuoc: " << ma << endl;
+                    string ten = nhapChuoiKhongRong("Ten thuoc: ");
+                    double gia = nhapSoThuc("Gia (VND): ", 0.0, 100000000.0);
+                    int ton = nhapSoNguyen("Ton kho: ", 0, 10000);
+                    string dv = nhapChuoiKhongRong("Don vi (vien, ong, lo): ");
+                    qlbv.themThuoc(make_shared<Thuoc>(ma, ten, gia, ton, dv));
+                    cout << "[+] Them thuoc thanh cong!\n";
+                }
+                else if (c == 3)
+                {
+                    string ma = nhapChuoiKhongRong("Ma thuoc can cap nhat: ");
+                    try
+                    {
+                        int tonMoi = nhapSoNguyen("Ton kho moi: ", 0, 10000);
+                        qlbv.capNhatTonKhoThuoc(ma, tonMoi);
+                        cout << "[+] Cap nhat thanh cong!\n";
+                    }
+                    catch (const exception &e)
+                    {
+                        cout << "[-] " << e.what() << endl;
+                    }
+                }
+                break;
+            }
+            case 26: // Cơ sở vật chất
+            {
+                cout << "\n=== CO SO VAT CHAT ===\n";
+                int count = 0;
+                for (const auto &p : qlbv.getDsCSVC())
+                {
+                    cout << ++count << ". " << p.second->toString() << endl;
+                }
+                if (count == 0)
+                    cout << "Khong co co so vat chat nao.\n";
+                break;
+            }
+            case 27: // Lập HSBA
+            {
+                string maBN = nhapChuoiKhongRong("Ma BN: ");
+                auto bn = qlbv.timBenhNhan(maBN);
+                if (!bn)
+                    throw runtime_error("Khong tim thay BN!");
+                string maHSBA = qlbv.taoMaHSBA();
+                cout << "[+] Ma HSBA: " << maHSBA << endl;
+                string cd = nhapChuoiKhongRong("Chan doan: ");
+                string pddt = nhapChuoiKhongRong("Phac do dieu tri: ");
+                auto now = chrono::system_clock::to_time_t(chrono::system_clock::now());
+                char buf[11];
+                strftime(buf, sizeof(buf), "%Y-%m-%d", localtime(&now));
+                auto hsba = make_shared<HoSoBenhAn>(maHSBA, maBN, cd, pddt, buf);
+                bn->themHoSoBenhAn(hsba);
+                qlbv.themHSBA(hsba);
+                cout << "[+] Lap HSBA thanh cong!\n";
+                break;
+            }
+            case 28: // Kê đơn
+            {
+                string maHSBA = nhapChuoiKhongRong("Ma HSBA: ");
+                auto hsba = qlbv.timHSBA(maHSBA);
+                if (!hsba)
+                    throw runtime_error("Khong tim thay HSBA!");
+                
+                const auto &dsThuoc = qlbv.getDsThuoc();
+                if (dsThuoc.empty())
+                {
+                    cout << "[!] Khong co thuoc nao trong kho!\n";
+                    break;
+                }
+                
+                cout << "\n=== DANH SACH THUOC ===\n";
+                int i = 1;
+                vector<shared_ptr<Thuoc>> thuocList;
+                for (const auto &p : dsThuoc)
+                {
+                    cout << i++ << ". " << p.second->toString() << endl;
+                    thuocList.push_back(p.second);
+                }
+                
+                int chon = nhapSoNguyen("Chon thuoc: ", 1, thuocList.size());
+                shared_ptr<Thuoc> thuocChon = thuocList[chon - 1];
+                int sl = nhapSoNguyen("So luong: ", 1, thuocChon->getTonKho());
+                hsba->keDonThuoc(thuocChon, sl);
+                cout << "[+] Ke don thanh cong!\n";
                 break;
             }
             case 0:

@@ -23,7 +23,8 @@
 #include <string>
 #include <unordered_map>
 #include <algorithm>
-#include <sstream>
+#include <stdexcept>
+#include <QSet> // Thêm QSet
 
 // ============= CẤU HÌNH GIÁ DỊCH VỤ =============
 struct CauHinhGia {
@@ -39,185 +40,159 @@ struct CauHinhGia {
 
 // ============= ÁNH XẠ BỆNH LÝ - CHUYÊN KHOA =============
 const std::unordered_map<std::string, std::vector<std::string>> chuyenKhoaToBenhLy = {
-    {"Tim mach", {"Tim mach", "Cao huyet ap", "Nhoi mau co tim"}},
-    {"Da lieu", {"Mui tri", "Nam da", "Viem da", "Cham"}},
-    {"Noi khoa", {"Tieu duong", "Benh gan", "Benh than"}},
-    {"Xuong khop", {"Thoai hoa khop", "Gout", "Trat khop"}}
+    {"Tim mạch", {"Nhồi máu cơ tim", "Suy tim", "Tăng huyết áp"}},
+    {"Hô hấp", {"Viêm phổi", "Hen suyễn", "Lao phổi"}},
+    {"Tiêu hóa", {"Viêm loét dạ dày", "Viêm ruột thừa", "Sỏi mật"}},
+    {"Thần kinh", {"Đột quỵ", "Parkinson", "Đau đầu migraine"}},
+    {"Nội tiết", {"Tiểu đường", "Basedow", "Béo phì"}},
+    {"Sản khoa", {"Thai ngoài tử cung", "Tiền sản giật", "Rong kinh"}},
 };
 
-// ============= LỚP NGƯỜI =============
+// HÀM TIỆN ÍCH: Thu thập tất cả bệnh lý duy nhất (dùng trong ComboBox)
+inline std::vector<std::string> getAllUniqueBenhLy() {
+    QSet<QString> uniqueDiseases;
+    for (const auto& pair : chuyenKhoaToBenhLy) {
+        for (const auto& disease : pair.second) {
+            uniqueDiseases.insert(QString::fromStdString(disease));
+        }
+    }
+    std::vector<std::string> result;
+    for (const QString& qstr : uniqueDiseases.values()) {
+        result.push_back(qstr.toStdString());
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+// ============= CÁC CLASS DỮ LIỆU CƠ BẢN =============
+
 class Nguoi {
-protected:
+private:
+    std::string ma;
     std::string hoTen;
     std::string gioiTinh;
-    int ngaySinh, thangSinh, namSinh;
+    std::string sdt;
     std::string diaChi;
 
 public:
-    Nguoi(const std::string& hoTen, const std::string& gioiTinh,
-          int ngaySinh, int thangSinh, int namSinh, const std::string& diaChi)
-        : hoTen(hoTen), gioiTinh(gioiTinh), ngaySinh(ngaySinh),
-        thangSinh(thangSinh), namSinh(namSinh), diaChi(diaChi) {}
-
+    Nguoi(const std::string& ma, const std::string& hoTen, const std::string& gioiTinh, const std::string& sdt, const std::string& diaChi)
+        : ma(ma), hoTen(hoTen), gioiTinh(gioiTinh), sdt(sdt), diaChi(diaChi) {}
     virtual ~Nguoi() = default;
 
+    // Getters
+    std::string getMa() const { return ma; }
     std::string getHoTen() const { return hoTen; }
-    void setHoTen(const std::string& ht) { hoTen = ht; }
-    void setDiaChi(const std::string& dc) { diaChi = dc; }
-    std::string getDiaChi() const { return diaChi; }
     std::string getGioiTinh() const { return gioiTinh; }
-    int getNgaySinh() const { return ngaySinh; }
-    int getThangSinh() const { return thangSinh; }
-    int getNamSinh() const { return namSinh; }
+    std::string getSdt() const { return sdt; }
+    std::string getDiaChi() const { return diaChi; }
 
-    int tinhTuoi() const {
-        QDate current = QDate::currentDate();
-        int tuoi = current.year() - namSinh;
-        if (current.month() < thangSinh ||
-            (current.month() == thangSinh && current.day() < ngaySinh)) {
-            tuoi--;
-        }
-        return tuoi;
-    }
-
-    virtual std::string toString() const = 0;
+    // Setters
+    void setHoTen(const std::string& ht) { hoTen = ht; }
+    void setGioiTinh(const std::string& gt) { gioiTinh = gt; }
+    void setSdt(const std::string& s) { sdt = s; }
+    void setDiaChi(const std::string& dc) { diaChi = dc; }
 };
 
-// ============= LỚP DỊCH VỤ =============
-class DichVu {
-private:
-    std::string tenDV;
-    double giaDV;
-public:
-    DichVu(const std::string& ten, double gia) : tenDV(ten), giaDV(gia) {}
-    std::string getTen() const { return tenDV; }
-    double getGia() const { return giaDV; }
-};
+class BenhNhan; // Forward declaration
 
-class BenhNhan;
-
-// ============= LỚP BÁC SĨ =============
 class BacSi : public Nguoi {
 private:
-    std::string maBS;
     std::string chuyenKhoa;
     std::vector<std::weak_ptr<BenhNhan>> danhSachBN;
 
 public:
-    BacSi(const std::string& maBS, const std::string& hoTen, const std::string& gioiTinh,
-          int ngaySinh, int thangSinh, int namSinh, const std::string& diaChi,
-          const std::string& chuyenKhoa)
-        : Nguoi(hoTen, gioiTinh, ngaySinh, thangSinh, namSinh, diaChi),
-        maBS(maBS), chuyenKhoa(chuyenKhoa) {}
+    BacSi(const std::string& ma, const std::string& hoTen, const std::string& gioiTinh, const std::string& sdt, const std::string& diaChi, const std::string& chuyenKhoa)
+        : Nguoi(ma, hoTen, gioiTinh, sdt, diaChi), chuyenKhoa(chuyenKhoa) {}
 
-    std::string getMaBS() const { return maBS; }
+    std::string getMaBS() const { return getMa(); }
     std::string getChuyenKhoa() const { return chuyenKhoa; }
+    int getSoBNPhuTrach() const {
+        int count = 0;
+        for (const auto& weak_bn : danhSachBN) {
+            if (weak_bn.lock()) count++;
+        }
+        return count;
+    }
+
     void setChuyenKhoa(const std::string& ck) { chuyenKhoa = ck; }
 
     void themBenhNhan(std::shared_ptr<BenhNhan> bn);
     void xoaBenhNhan(const std::string& maBN);
-    const std::vector<std::weak_ptr<BenhNhan>>& getDanhSachBN() const { return danhSachBN; }
-
-    std::string toString() const override {
-        return "BS{" + maBS + " | " + hoTen + " | " +
-               std::to_string(tinhTuoi()) + " tuoi | " + chuyenKhoa + "}";
-    }
 };
 
-// ============= LỚP PHÒNG BỆNH =============
-class PhongBenh {
-protected:
-    int soPhong;
-    int soGiuong;
-    int soBNDangNam;
-
-public:
-    PhongBenh(int soPhong, int soGiuong)
-        : soPhong(soPhong), soGiuong(soGiuong), soBNDangNam(0) {}
-
-    virtual ~PhongBenh() = default;
-
-    bool isTrong() const { return soBNDangNam < soGiuong; }
-    void themBenhNhan() { if (soBNDangNam < soGiuong) soBNDangNam++; }
-    void xoaBenhNhan() { if (soBNDangNam > 0) soBNDangNam--; }
-
-    int getSoPhong() const { return soPhong; }
-    int getSoGiuong() const { return soGiuong; }
-    int getSoBNDangNam() const { return soBNDangNam; }
-    void setSoGiuong(int sg) { soGiuong = sg; }
-
-    virtual double tinhPhiNgayCoBan() const = 0;
-    virtual std::string getLoaiPhong() const = 0;
-};
-
-class PhongThuong : public PhongBenh {
-public:
-    PhongThuong(int soPhong, int soGiuong) : PhongBenh(soPhong, soGiuong) {}
-    double tinhPhiNgayCoBan() const override {
-        return CauHinhGia::getInstance().giaPhongThuong;
-    }
-    std::string getLoaiPhong() const override { return "Thuong"; }
-};
-
-class PhongVIP : public PhongBenh {
-public:
-    PhongVIP(int soPhong, int soGiuong) : PhongBenh(soPhong, soGiuong) {}
-    double tinhPhiNgayCoBan() const override {
-        return CauHinhGia::getInstance().giaPhongVIP;
-    }
-    std::string getLoaiPhong() const override { return "VIP"; }
-};
-
-// ============= LỚP BỆNH NHÂN =============
 class BenhNhan : public Nguoi {
 private:
-    std::string maBN;
-    std::vector<std::string> danhSachBenhLy;
-    std::shared_ptr<BacSi> bacSiDieuTri;
-    std::shared_ptr<PhongBenh> soPhong;
+    std::string ngaySinh;
+    std::string ngayNhapVien;
+    std::string benhLy;
+    bool laHoNgheo;
     bool trangThaiNhapVien;
-    bool coSoHoNgheo;
-    std::vector<DichVu> dichVuSuDung;
+    std::string maPhongHienTai;
 
 public:
-    BenhNhan(const std::string& maBN, const std::string& hoTen,
-             const std::string& gioiTinh, int ngaySinh, int thangSinh,
-             int namSinh, const std::string& diaChi,
-             const std::vector<std::string>& dsBenhLy, bool coSoHoNgheo)
-        : Nguoi(hoTen, gioiTinh, ngaySinh, thangSinh, namSinh, diaChi),
-        maBN(maBN), danhSachBenhLy(dsBenhLy), trangThaiNhapVien(true),
-        coSoHoNgheo(coSoHoNgheo) {}
+    BenhNhan(const std::string& ma, const std::string& hoTen, const std::string& gioiTinh, const std::string& sdt, const std::string& diaChi, const std::string& ngaySinh, const std::string& ngayNhapVien, const std::string& benhLy, bool laHoNgheo)
+        : Nguoi(ma, hoTen, gioiTinh, sdt, diaChi), ngaySinh(ngaySinh), ngayNhapVien(ngayNhapVien), benhLy(benhLy), laHoNgheo(laHoNgheo), trangThaiNhapVien(true) {}
 
-    std::string getMaBN() const { return maBN; }
-    const std::vector<std::string>& getDanhSachBenhLy() const { return danhSachBenhLy; }
-    std::shared_ptr<BacSi> getBacSiDieuTri() const { return bacSiDieuTri; }
-    std::shared_ptr<PhongBenh> getSoPhongObj() const { return soPhong; }
-    bool getCoSoHoNgheo() const { return coSoHoNgheo; }
+    std::string getMaBN() const { return getMa(); }
+    std::string getNgaySinh() const { return ngaySinh; }
+    std::string getNgayNhapVien() const { return ngayNhapVien; }
+    std::string getBenhLy() const { return benhLy; }
+    bool getLaHoNgheo() const { return laHoNgheo; }
     bool getTrangThaiNhapVien() const { return trangThaiNhapVien; }
+    std::string getMaPhongHienTai() const { return maPhongHienTai; }
 
-    void themBenhLy(const std::string& bl) { danhSachBenhLy.push_back(bl); }
-    void capNhatThongTin(std::shared_ptr<BacSi> bs, std::shared_ptr<PhongBenh> phong) {
-        bacSiDieuTri = bs;
-        soPhong = phong;
+    void setNgaySinh(const std::string& ns) { ngaySinh = ns; }
+    void setNgayNhapVien(const std::string& nnv) { ngayNhapVien = nnv; }
+    void setBenhLy(const std::string& bl) { benhLy = bl; }
+    void setLaHoNgheo(bool lhn) { laHoNgheo = lhn; }
+    void setTrangThaiNhapVien(bool tt) { trangThaiNhapVien = tt; }
+    void setMaPhongHienTai(const std::string& mp) { maPhongHienTai = mp; }
+};
+
+class PhongBenh {
+private:
+    std::string maPhong;
+    std::string loaiPhong; // Thường, VIP
+    int soGiuong;
+    int soBNDangNam;
+    std::string trangThai; // Trống, Đầy, Sửa chữa
+
+public:
+    PhongBenh(const std::string& ma, const std::string& loai, int soGiuong)
+        : maPhong(ma), loaiPhong(loai), soGiuong(soGiuong), soBNDangNam(0) {
+        capNhatTrangThai();
     }
 
-    void raVien() {
-        trangThaiNhapVien = false;
-        if (soPhong) soPhong->xoaBenhNhan();
-        if (bacSiDieuTri) bacSiDieuTri->xoaBenhNhan(maBN);
-        bacSiDieuTri = nullptr;
-        soPhong = nullptr;
-    }
+    std::string getMaPhong() const { return maPhong; }
+    std::string getLoaiPhong() const { return loaiPhong; }
+    int getSoGiuong() const { return soGiuong; }
+    int getSoBNDangNam() const { return soBNDangNam; }
+    std::string getTrangThai() const { return trangThai; }
 
-    std::string toString() const override {
-        std::string bl = "";
-        for (size_t i = 0; i < danhSachBenhLy.size(); ++i) {
-            bl += danhSachBenhLy[i];
-            if (i < danhSachBenhLy.size() - 1) bl += ", ";
+    void setLoaiPhong(const std::string& lp) { loaiPhong = lp; }
+    void setSoGiuong(int sg) { soGiuong = sg; capNhatTrangThai(); }
+    void setTrangThai(const std::string& tt) { trangThai = tt; }
+
+    void tangBN() { soBNDangNam++; capNhatTrangThai(); }
+    void giamBN() { soBNDangNam = std::max(0, soBNDangNam - 1); capNhatTrangThai(); }
+
+private:
+    void capNhatTrangThai() {
+        if (trangThai == "Sửa chữa") return;
+        if (soBNDangNam >= soGiuong) {
+            trangThai = "Đầy";
+        } else if (soBNDangNam == 0) {
+            trangThai = "Trống";
+        } else {
+            trangThai = "Còn chỗ";
         }
-        return "BN{" + maBN + " | " + hoTen + " | " +
-               std::to_string(tinhTuoi()) + " tuoi | " + bl + "}";
     }
+};
+
+struct PhanCong {
+    std::string maBN;
+    std::string maBS;
+    std::string maPhong;
 };
 
 // ============= QUẢN LÝ BỆNH VIỆN =============
@@ -225,84 +200,51 @@ class QuanLyBenhVien {
 private:
     std::unordered_map<std::string, std::shared_ptr<BenhNhan>> dsBN;
     std::unordered_map<std::string, std::shared_ptr<BacSi>> dsBS;
-    std::unordered_map<int, std::shared_ptr<PhongBenh>> dsPhong;
+    std::unordered_map<std::string, std::shared_ptr<PhongBenh>> dsPhong;
+    std::unordered_map<std::string, PhanCong> dsPhanCong; // Key: MaBN
 
 public:
-    void themBenhNhan(std::shared_ptr<BenhNhan> bn) { dsBN[bn->getMaBN()] = bn; }
-    void themBacSi(std::shared_ptr<BacSi> bs) { dsBS[bs->getMaBS()] = bs; }
-    void themPhong(std::shared_ptr<PhongBenh> phong) { dsPhong[phong->getSoPhong()] = phong; }
+    // Thêm/Sửa
+    void themBN(std::shared_ptr<BenhNhan> bn) { dsBN[bn->getMaBN()] = bn; }
+    void suaBN(std::shared_ptr<BenhNhan> bn) { if (dsBN.count(bn->getMaBN())) dsBN[bn->getMaBN()] = bn; }
+    void themBS(std::shared_ptr<BacSi> bs) { dsBS[bs->getMaBS()] = bs; }
+    void suaBS(std::shared_ptr<BacSi> bs) { if (dsBS.count(bs->getMaBS())) dsBS[bs->getMaBS()] = bs; }
+    void themPhong(std::shared_ptr<PhongBenh> phong) { dsPhong[phong->getMaPhong()] = phong; }
+    void suaPhong(std::shared_ptr<PhongBenh> phong) { if (dsPhong.count(phong->getMaPhong())) dsPhong[phong->getMaPhong()] = phong; }
 
-    std::shared_ptr<BenhNhan> timBenhNhan(const std::string& maBN) {
-        auto it = dsBN.find(maBN);
-        return (it != dsBN.end()) ? it->second : nullptr;
-    }
+    // Xóa
+    void xoaBN(const std::string& maBN);
+    void xoaBS(const std::string& maBS);
+    void xoaPhong(const std::string& maPhong);
 
-    std::shared_ptr<BacSi> timBacSi(const std::string& maBS) {
-        auto it = dsBS.find(maBS);
-        return (it != dsBS.end()) ? it->second : nullptr;
-    }
+    // Tìm kiếm
+    std::shared_ptr<BenhNhan> timBN(const std::string& maBN) { return dsBN.count(maBN) ? dsBN.at(maBN) : nullptr; }
+    std::shared_ptr<BacSi> timBS(const std::string& maBS) { return dsBS.count(maBS) ? dsBS.at(maBS) : nullptr; }
+    std::shared_ptr<PhongBenh> timPhong(const std::string& maPhong) { return dsPhong.count(maPhong) ? dsPhong.at(maPhong) : nullptr; }
 
-    std::shared_ptr<PhongBenh> timPhong(int soPhong) {
-        auto it = dsPhong.find(soPhong);
-        return (it != dsPhong.end()) ? it->second : nullptr;
-    }
+    // Phân công & Ra viện
+    void phanCong(const std::string& maBN, const std::string& maBS, const std::string& maPhong);
+    void raVien(const std::string& maBN);
 
-    void xoaBenhNhan(const std::string& maBN) { dsBN.erase(maBN); }
-    void xoaBacSi(const std::string& maBS) { dsBS.erase(maBS); }
-    void xoaPhong(int soPhong) { dsPhong.erase(soPhong); }
-
+    // Getters
     const std::unordered_map<std::string, std::shared_ptr<BenhNhan>>& getDsBN() const { return dsBN; }
     const std::unordered_map<std::string, std::shared_ptr<BacSi>>& getDsBS() const { return dsBS; }
-    const std::unordered_map<int, std::shared_ptr<PhongBenh>>& getDsPhong() const { return dsPhong; }
-
-    void phanCong(std::shared_ptr<BenhNhan> bn, std::shared_ptr<BacSi> bs,
-                  std::shared_ptr<PhongBenh> phong) {
-        if (!phong->isTrong()) throw std::runtime_error("Phòng đã đầy!");
-
-        auto phongCu = bn->getSoPhongObj();
-        if (phongCu && phongCu != phong) phongCu->xoaBenhNhan();
-
-        auto bsCu = bn->getBacSiDieuTri();
-        if (bsCu && bsCu != bs) bsCu->xoaBenhNhan(bn->getMaBN());
-
-        bn->capNhatThongTin(bs, phong);
-        bs->themBenhNhan(bn);
-        if (!phongCu || phongCu != phong) phong->themBenhNhan();
-    }
+    const std::unordered_map<std::string, std::shared_ptr<PhongBenh>>& getDsPhong() const { return dsPhong; }
+    const std::unordered_map<std::string, PhanCong>& getDsPhanCong() const { return dsPhanCong; }
 };
 
-// ============= MAIN WINDOW =============
-class MainWindow : public QMainWindow {
+// ============= MAINWINDOW =============
+
+class MainWindow : public QMainWindow
+{
     Q_OBJECT
 
+public:
+    explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow();
+
 private:
-    QuanLyBenhVien qlbv;
-    QTabWidget* tabWidget;
-    QTextEdit* thongKeOutput;
-
-    QTableWidget* tableBN;
-    QTableWidget* tableBS;
-    QTableWidget* tablePhong;
-    QTableWidget* tablePhanCong; // KHAI BÁO BẢNG PHÂN CÔNG MỚI
-
-    QPushButton* btnThemBN;
-    QPushButton* btnSuaBN;
-    QPushButton* btnXoaBN;
-    QPushButton* btnXuatBN;
-
-    QPushButton* btnThemBS;
-    QPushButton* btnSuaBS;
-    QPushButton* btnXoaBS;
-    QPushButton* btnXuatBS;
-
-    QPushButton* btnThemPhong;
-    QPushButton* btnSuaPhong;
-    QPushButton* btnXuatPhong;
-
-    QPushButton* btnPhanCong;
-    QPushButton* btnRaVien;
-    QPushButton* btnThongKe;
-
+    // Setup UI
     void setupUI();
     void createBenhNhanTab();
     void createBacSiTab();
@@ -310,41 +252,98 @@ private:
     void createDieuTriTab();
     void createThongKeTab();
 
-    void updateBenhNhanTable();
-    void updateBacSiTable();
+    // Hàm hỗ trợ tạo mã
+    std::string generateNextMaBN();
+    std::string generateNextMaBS();
+
+    // Cập nhật bảng
+    void updateBenhNhanTable(const std::string& keyword = "", const std::string& filterDisease = "");
+    void updateBacSiTable(const std::string& keyword = "", const std::string& filterChuyenKhoa = "");
     void updatePhongTable();
-    void updatePhanCongTable(); // KHAI BÁO HÀM CẬP NHẬT BẢNG MỚI
+    void updatePhanCongTable();
 
-    void exportTableToCsv(QTableWidget* table, const QString& defaultFileName, const QString& title);
-
+    // Hộp thoại & Xuất file
     void showBenhNhanInputDialog(std::shared_ptr<BenhNhan> bn = nullptr);
-    void showBacSiInputDialog();
+    void showBacSiInputDialog(std::shared_ptr<BacSi> bs = nullptr);
     void showPhongInputDialog(std::shared_ptr<PhongBenh> phong = nullptr);
     void showPhanCongDialog();
+    void showRaVienDialog(); // Thủ tục Ra viện
+    void exportTableToCsv(QTableWidget* table, const QString& defaultFileName, const QString& title);
+    void exportHoaDon(std::shared_ptr<BenhNhan> bn, int soNgayNam, double tongTienChuaGiam, double giamGia, double chiPhiSauGiam, std::shared_ptr<PhongBenh> phong, std::shared_ptr<BacSi> bs);
 
 
 private slots:
+    // Slots BN
     void onThemBenhNhan();
     void onSuaBenhNhan();
     void onXoaBenhNhan();
     void onXuatBenhNhan();
+    void onFilterBenhNhan();
 
+    // Slots BS
     void onThemBacSi();
     void onSuaBacSi();
     void onXoaBacSi();
     void onXuatBacSi();
+    void onFilterBacSi();
 
+    // Slots Phòng
     void onThemPhong();
     void onSuaPhong();
+    void onXoaPhong();
     void onXuatPhong();
 
+    // Slots Điều trị
     void onPhanCong();
     void onRaVien();
+
+    // Slots Thống kê
     void onThongKe();
 
-public:
-    MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
-};
+private:
+    QuanLyBenhVien qlbv;
 
+    // UI elements
+    QTabWidget* tabWidget;
+
+    // Tab BN
+    QWidget* benhNhanTab;
+    QTableWidget* benhNhanTable;
+    QPushButton* btnThemBN;
+    QPushButton* btnSuaBN;
+    QPushButton* btnXoaBN;
+    QPushButton* btnXuatBN;
+    QLineEdit* filterBNInput;
+    QComboBox* filterBNCombo;
+
+    // Tab BS
+    QWidget* bacSiTab;
+    QTableWidget* bacSiTable;
+    QPushButton* btnThemBS;
+    QPushButton* btnSuaBS;
+    QPushButton* btnXoaBS;
+    QPushButton* btnXuatBS;
+    QLineEdit* searchBacSiLine;
+    QComboBox* filterChuyenKhoaBacSiCombo;
+
+
+    // Tab Phòng
+    QWidget* phongTab;
+    QTableWidget* phongTable;
+    QPushButton* btnThemPhong;
+    QPushButton* btnSuaPhong;
+    QPushButton* btnXoaPhong;
+    QPushButton* btnXuatPhong;
+
+    // Tab Điều trị
+    QWidget* dieuTriTab;
+    QTableWidget* phanCongTable;
+    QPushButton* btnPhanCong;
+    QPushButton* btnRaVien;
+
+    // Tab Thống kê
+    QWidget* thongKeTab;
+    QTextEdit* thongKeOutput;
+    QPushButton* btnThongKe;
+};
 #endif // MAINWINDOW_H

@@ -19,10 +19,14 @@
 #include <QListWidget>
 #include <QStatusBar>
 #include <QMessageBox>
+#include <QScrollArea>
+#include <QPrinter>
+#include <QPrintDialog>
+#include <QPainter>
+#include <QCloseEvent>
 
 // =======================================================
-// LỚP QUẢN LÝ BENH VIEN IMPLEMENTATION
-// (Không thay đổi, giữ lại logic ban đầu)
+// QUẢN LÝ BỆNH VIỆN IMPLEMENTATION
 // =======================================================
 
 void QuanLyBenhVien::luuFile(const std::string& filename, const std::string& content) const {
@@ -48,22 +52,30 @@ std::string QuanLyBenhVien::docFile(const std::string& filename) const {
 }
 
 void QuanLyBenhVien::luuDuLieu() {
-    std::stringstream bn_ss, bs_ss, phong_ss;
+    std::stringstream bn_ss, bs_ss, phong_ss, counter_ss;
 
-    // BN: MaBN|Ten|GT|Tuoi|BenhLy|HoNgheo|MaBS|MaPhong|NgayNV
+    // BN: MaBN|Ten|GT|NgaySinh|SDT|DiaChi|BenhLy|HoNgheo|MaBS|MaPhong|NgayNV|PTTT|NgayRV|ChiPhi|DaXuatVien
     for (const auto& pair : dsBenhNhan) {
         const auto& bn = pair.second;
         bn_ss << bn->getMaBN() << "|" << bn->getHoTen() << "|" << bn->getGioiTinh()
-              << "|" << bn->getTuoi() << "|" << bn->getBenhLy() << "|" << bn->isHoNgheo()
+              << "|" << bn->getNgaySinh().toString("dd/MM/yyyy").toStdString()
+              << "|" << bn->getSoDienThoai() << "|" << bn->getDiaChi()
+              << "|" << bn->getBenhLy() << "|" << bn->isHoNgheo()
               << "|" << bn->getMaBSPhuTrach() << "|" << bn->getMaPhongDieuTri()
-              << "|" << bn->getNgayNhapVien().toString("dd/MM/yyyy").toStdString() << "\n";
+              << "|" << bn->getNgayNhapVien().toString("dd/MM/yyyy").toStdString()
+              << "|" << bn->getPhuongThucThanhToan()
+              << "|" << (bn->getNgayRaVien().isValid() ? bn->getNgayRaVien().toString("dd/MM/yyyy").toStdString() : "")
+              << "|" << bn->getTongChiPhi()
+              << "|" << bn->isDaXuatVien() << "\n";
     }
 
-    // BS: MaBS|Ten|GT|Tuoi|ChuyenKhoa
+    // BS: MaBS|Ten|GT|NgaySinh|SDT|DiaChi|ChuyenKhoa
     for (const auto& pair : dsBacSi) {
         const auto& bs = pair.second;
         bs_ss << bs->getMaBS() << "|" << bs->getHoTen() << "|" << bs->getGioiTinh()
-              << "|" << bs->getTuoi() << "|" << bs->getChuyenKhoa() << "\n";
+              << "|" << bs->getNgaySinh().toString("dd/MM/yyyy").toStdString()
+              << "|" << bs->getSoDienThoai() << "|" << bs->getDiaChi()
+              << "|" << bs->getChuyenKhoa() << "\n";
     }
 
     // Phong: MaPhong|LoaiPhong|SoGiuong|SoBNDangNam
@@ -73,12 +85,39 @@ void QuanLyBenhVien::luuDuLieu() {
                  << "|" << phong->getSoGiuong() << "|" << phong->getSoBNDangNam() << "\n";
     }
 
+    counter_ss << maBNCounter << "|" << maBSCounter << "\n";
+
     luuFile("benhnhan.txt", bn_ss.str());
     luuFile("bacsi.txt", bs_ss.str());
     luuFile("phongbenh.txt", phong_ss.str());
+    luuFile("counter.txt", counter_ss.str());
 }
 
 void QuanLyBenhVien::docDuLieu() {
+    // Đọc Counter
+    std::string counter_content = docFile("counter.txt");
+    if (!counter_content.empty()) {
+        std::stringstream counter_ss(counter_content);
+        std::string line;
+        if (std::getline(counter_ss, line)) {
+            std::stringstream line_ss(line);
+            std::string segment;
+            std::vector<std::string> segments;
+            while (std::getline(line_ss, segment, '|')) {
+                segments.push_back(segment);
+            }
+            if (segments.size() >= 2) {
+                try {
+                    maBNCounter = std::stoi(segments[0]);
+                    maBSCounter = std::stoi(segments[1]);
+                } catch (...) {
+                    maBNCounter = 1;
+                    maBSCounter = 1;
+                }
+            }
+        }
+    }
+
     // Đọc BN
     std::string bn_content = docFile("benhnhan.txt");
     std::stringstream bn_ss(bn_content);
@@ -92,24 +131,42 @@ void QuanLyBenhVien::docDuLieu() {
             segments.push_back(segment);
         }
 
-        if (segments.size() >= 9) {
+        if (segments.size() >= 12) {
             try {
                 std::string maBN = segments[0];
                 std::string hoTen = segments[1];
                 std::string gioiTinh = segments[2];
-                int tuoi = std::stoi(segments[3]);
-                std::string benhLy = segments[4];
-                bool hoNgheo = (segments[5] == "1" || segments[5] == "true");
-                std::string maBSPT = segments[6];
-                std::string maPhongDT = segments[7];
-                QDate ngayNV = QDate::fromString(QString::fromStdString(segments[8]), "dd/MM/yyyy");
+                QDate ngaySinh = QDate::fromString(QString::fromStdString(segments[3]), "dd/MM/yyyy");
+                std::string sdt = segments[4];
+                std::string diaChi = segments[5];
+                std::string benhLy = segments[6];
+                bool hoNgheo = (segments[7] == "1" || segments[7] == "true");
+                std::string maBSPT = segments[8];
+                std::string maPhongDT = segments[9];
+                QDate ngayNV = QDate::fromString(QString::fromStdString(segments[10]), "dd/MM/yyyy");
+                std::string pttt = segments[11];
 
-                auto bn = std::make_shared<BenhNhan>(maBN, hoTen, gioiTinh, tuoi, benhLy, hoNgheo, ngayNV);
+                auto bn = std::make_shared<BenhNhan>(maBN, hoTen, gioiTinh, ngaySinh, sdt, diaChi, benhLy, hoNgheo, ngayNV);
                 bn->setMaBSPhuTrach(maBSPT);
                 bn->setMaPhongDieuTri(maPhongDT);
+                bn->setPhuongThucThanhToan(pttt);
+
+                // Đọc thông tin xuất viện nếu có
+                if (segments.size() >= 15) {
+                    if (!segments[12].empty()) {
+                        QDate ngayRV = QDate::fromString(QString::fromStdString(segments[12]), "dd/MM/yyyy");
+                        bn->setNgayRaVien(ngayRV);
+                    }
+                    if (!segments[13].empty()) {
+                        bn->setTongChiPhi(std::stod(segments[13]));
+                    }
+                    bool daXuatVien = (segments[14] == "1" || segments[14] == "true");
+                    bn->setDaXuatVien(daXuatVien);
+                }
+
                 dsBenhNhan[maBN] = bn;
 
-            } catch (...) { /* Bỏ qua dòng lỗi */ }
+            } catch (...) { }
         }
     }
 
@@ -125,17 +182,19 @@ void QuanLyBenhVien::docDuLieu() {
             segments.push_back(segment);
         }
 
-        if (segments.size() >= 5) {
+        if (segments.size() >= 7) {
             try {
                 std::string maBS = segments[0];
                 std::string hoTen = segments[1];
                 std::string gioiTinh = segments[2];
-                int tuoi = std::stoi(segments[3]);
-                std::string chuyenKhoa = segments[4];
+                QDate ngaySinh = QDate::fromString(QString::fromStdString(segments[3]), "dd/MM/yyyy");
+                std::string sdt = segments[4];
+                std::string diaChi = segments[5];
+                std::string chuyenKhoa = segments[6];
 
-                auto bs = std::make_shared<BacSi>(maBS, hoTen, gioiTinh, tuoi, chuyenKhoa);
+                auto bs = std::make_shared<BacSi>(maBS, hoTen, gioiTinh, ngaySinh, sdt, diaChi, chuyenKhoa);
                 dsBacSi[maBS] = bs;
-            } catch (...) { /* Bỏ qua dòng lỗi */ }
+            } catch (...) { }
         }
     }
 
@@ -156,42 +215,22 @@ void QuanLyBenhVien::docDuLieu() {
                 std::string maPhong = segments[0];
                 std::string loaiPhong = segments[1];
                 int soGiuong = std::stoi(segments[2]);
-                int soBNDangNam = std::stoi(segments[3]);
-
                 auto phong = std::make_shared<PhongBenh>(maPhong, loaiPhong, soGiuong);
-                // Cập nhật số BN Đang Nằm mà không kích hoạt exception (vì đã được lưu)
-                // Đếm lại từ danh sách BN để đảm bảo đồng bộ
-                int bn_count = 0;
-                for (const auto& pair : dsBenhNhan) {
-                    if (pair.second->getMaPhongDieuTri() == maPhong) {
-                        bn_count++;
-                    }
-                }
-                // Điều chỉnh lại số BN nếu cần (lỗi đồng bộ file)
-                if (bn_count != soBNDangNam) {
-                    // Cập nhật lại số BN Đang Nằm theo dữ liệu BN thực tế (ưu tiên dữ liệu BN)
-                    // Dữ liệu BN: Cần một setter private/friend hoặc bỏ qua soBNDangNam trong file
-                    // Để đơn giản, ta sẽ chỉ lấy số Giường từ file, và để BN tự động tăng/giảm BN.
-                }
-                // Vì không có setter cho soBNDangNam trong PhongBenh, ta chỉ khởi tạo rồi để nó bằng 0.
-                // Sau đó, cần chạy qua danh sách BN và gán lại cho Phòng.
-                // BỎ QUA segments[3] VÀ ĐỂ BN TỰ CẬP NHẬT PHÒNG
                 dsPhong[maPhong] = phong;
-            } catch (...) { /* Bỏ qua dòng lỗi */ }
+            } catch (...) { }
         }
     }
-    // Sau khi đọc xong BN và Phòng, ta cập nhật lại số BN Đang Nằm cho Phòng.
+
+    // Cập nhật lại số BN trong phòng (chỉ tính BN chưa xuất viện)
     for (const auto& pair : dsBenhNhan) {
         const auto& bn = pair.second;
-        if (!bn->getMaPhongDieuTri().empty()) {
+        if (!bn->isDaXuatVien() && !bn->getMaPhongDieuTri().empty()) {
             if (auto phong = getPhong(bn->getMaPhongDieuTri())) {
                 try {
-                    // Tăng BN bằng cách bypass kiểm tra phòng đầy (vì dữ liệu đã được lưu)
-                    // Đây là một vấn đề nhỏ trong thiết kế lớp, nhưng ta sẽ chấp nhận rủi ro khi đọc file
                     if (phong->getSoBNDangNam() < phong->getSoGiuong()) {
                         phong->tangBN();
                     }
-                } catch (...) { /* Bỏ qua nếu phòng đầy, coi như lỗi dữ liệu */ }
+                } catch (...) { }
             }
         }
     }
@@ -199,6 +238,23 @@ void QuanLyBenhVien::docDuLieu() {
 
 QuanLyBenhVien::QuanLyBenhVien() {
     docDuLieu();
+
+    if (dsBenhNhan.empty()) maBNCounter = 1;
+    if (dsBacSi.empty()) maBSCounter = 1;
+    if (maBNCounter < 1) maBNCounter = 1;
+    if (maBSCounter < 1) maBSCounter = 1;
+}
+
+std::string QuanLyBenhVien::taoMaBNTuDong() const {
+    std::stringstream ss;
+    ss << "BN" << std::setfill('0') << std::setw(4) << maBNCounter;
+    return ss.str();
+}
+
+std::string QuanLyBenhVien::taoMaBSTuDong() const {
+    std::stringstream ss;
+    ss << "BS" << std::setfill('0') << std::setw(4) << maBSCounter;
+    return ss.str();
 }
 
 void QuanLyBenhVien::themBenhNhan(std::shared_ptr<BenhNhan> bn) {
@@ -220,8 +276,7 @@ void QuanLyBenhVien::xoaBenhNhan(const std::string& maBN) {
     auto bn = getBenhNhan(maBN);
     if (!bn) throw std::runtime_error("Mã bệnh nhân không tồn tại.");
 
-    // Giảm BN trong phòng nếu BN đang nằm viện
-    if (!bn->getMaPhongDieuTri().empty()) {
+    if (!bn->isDaXuatVien() && !bn->getMaPhongDieuTri().empty()) {
         if (auto phong = getPhong(bn->getMaPhongDieuTri())) {
             phong->giamBN();
         }
@@ -233,7 +288,6 @@ void QuanLyBenhVien::xoaBenhNhan(const std::string& maBN) {
 void QuanLyBenhVien::xoaBacSi(const std::string& maBS) {
     if (!getBacSi(maBS)) throw std::runtime_error("Mã bác sĩ không tồn tại.");
 
-    // Cần phải gỡ phân công cho tất cả BN mà BS này đang phụ trách
     for (const auto& pair : dsBenhNhan) {
         if (pair.second->getMaBSPhuTrach() == maBS) {
             pair.second->setMaBSPhuTrach("");
@@ -246,7 +300,6 @@ void QuanLyBenhVien::xoaBacSi(const std::string& maBS) {
 void QuanLyBenhVien::xoaPhong(const std::string& maPhong) {
     if (!getPhong(maPhong)) throw std::runtime_error("Mã phòng không tồn tại.");
 
-    // Cần phải gỡ phòng cho tất cả BN đang nằm phòng này
     for (const auto& pair : dsBenhNhan) {
         if (pair.second->getMaPhongDieuTri() == maPhong) {
             pair.second->setMaPhongDieuTri("");
@@ -265,20 +318,17 @@ void QuanLyBenhVien::phanCongDieuTri(const std::string& maBN, const std::string&
     if (!bs) throw std::runtime_error("Mã bác sĩ không tồn tại.");
     if (!phong) throw std::runtime_error("Mã phòng không tồn tại.");
 
-    // 1. Gỡ khỏi phòng cũ (nếu có)
     if (!bn->getMaPhongDieuTri().empty() && bn->getMaPhongDieuTri() != maPhong) {
         if (auto oldPhong = getPhong(bn->getMaPhongDieuTri())) {
             oldPhong->giamBN();
         }
     }
 
-    // 2. Phân công vào phòng mới
     if (bn->getMaPhongDieuTri() != maPhong) {
         phong->tangBN();
         bn->setMaPhongDieuTri(maPhong);
     }
 
-    // 3. Phân công bác sĩ
     bn->setMaBSPhuTrach(maBS);
 }
 
@@ -291,7 +341,6 @@ double QuanLyBenhVien::raVien(const std::string& maBN, const QDate& ngayRaVien) 
     auto phong = getPhong(bn->getMaPhongDieuTri());
     if (!phong) throw std::runtime_error("Phòng bệnh của BN không tồn tại. (Lỗi đồng bộ)");
 
-    // 1. Tính chi phí
     int soNgay = bn->getNgayNhapVien().daysTo(ngayRaVien);
     if (soNgay == 0) soNgay = 1;
 
@@ -302,9 +351,13 @@ double QuanLyBenhVien::raVien(const std::string& maBN, const QDate& ngayRaVien) 
         chiPhi *= (1.0 - CauHinhGia::getInstance().giamGiaHoNgheo);
     }
 
-    // 2. Cập nhật trạng thái
-    phong->giamBN(); // Giảm số BN trong phòng
-    dsBenhNhan.erase(maBN); // Xóa bệnh nhân khỏi danh sách
+    // Cập nhật trạng thái xuất viện
+    bn->setNgayRaVien(ngayRaVien);
+    bn->setTongChiPhi(chiPhi);
+    bn->setDaXuatVien(true);
+
+    // Giảm số BN trong phòng
+    phong->giamBN();
 
     return chiPhi;
 }
@@ -327,7 +380,7 @@ std::shared_ptr<PhongBenh> QuanLyBenhVien::getPhong(const std::string& maPhong) 
 std::vector<std::shared_ptr<BenhNhan>> QuanLyBenhVien::getBenhNhanPhuTrach(const std::string& maBS) const {
     std::vector<std::shared_ptr<BenhNhan>> result;
     for (const auto& pair : dsBenhNhan) {
-        if (pair.second->getMaBSPhuTrach() == maBS) {
+        if (!pair.second->isDaXuatVien() && pair.second->getMaBSPhuTrach() == maBS) {
             result.push_back(pair.second);
         }
     }
@@ -340,23 +393,32 @@ std::string QuanLyBenhVien::thongKeTongHop() const {
     ss << "       BÁO CÁO THỐNG KÊ TỔNG HỢP\n";
     ss << "=======================================\n";
     ss << "1. Tình trạng Bệnh nhân:\n";
-    ss << "  + Tổng số BN đang điều trị: " << dsBenhNhan.size() << "\n";
 
+    int bnDangDieuTri = 0;
+    int bnDaXuatVien = 0;
     int bnCoBS = 0;
     int bnCoPhong = 0;
     int bnHoNgheo = 0;
+
     for (const auto& pair : dsBenhNhan) {
         const auto& bn = pair.second;
-        if (!bn->getMaBSPhuTrach().empty()) bnCoBS++;
-        if (!bn->getMaPhongDieuTri().empty()) bnCoPhong++;
+        if (bn->isDaXuatVien()) {
+            bnDaXuatVien++;
+        } else {
+            bnDangDieuTri++;
+            if (!bn->getMaBSPhuTrach().empty()) bnCoBS++;
+            if (!bn->getMaPhongDieuTri().empty()) bnCoPhong++;
+        }
         if (bn->isHoNgheo()) bnHoNgheo++;
     }
+
+    ss << "  + Tổng số BN đang điều trị: " << bnDangDieuTri << "\n";
     ss << "  + BN đã phân công BS: " << bnCoBS << "\n";
     ss << "  + BN đã phân phòng: " << bnCoPhong << "\n";
-    ss << "  + BN hộ nghèo: " << bnHoNgheo << "\n";
+    ss << "  + BN hộ nghèo (đang điều trị): " << bnHoNgheo << "\n";
+    ss << "  + Tổng số BN đã xuất viện: " << bnDaXuatVien << "\n";
     ss << "\n";
 
-    // 2. Tình trạng Bác sĩ
     ss << "2. Tình trạng Bác sĩ:\n";
     ss << "  + Tổng số Bác sĩ: " << dsBacSi.size() << "\n";
     int bsCoBN = 0;
@@ -367,20 +429,19 @@ std::string QuanLyBenhVien::thongKeTongHop() const {
         int soBN = getBenhNhanPhuTrach(bs->getMaBS()).size();
         if (soBN > 0) bsCoBN++;
         if (soBN > maxBn) {
-            maxBn = getBenhNhanPhuTrach(bs->getMaBS()).size();
+            maxBn = soBN;
             bsMaxLoad = bs;
         }
     }
     ss << "  + Bác sĩ đang phụ trách BN: " << bsCoBN << "\n";
     ss << "  + Bác sĩ phụ trách nhiều BN nhất:\n";
     if (bsMaxLoad) {
-        ss << "  + " << bsMaxLoad->getHoTen() << " (" << bsMaxLoad->getMaBS() << "): " << maxBn << " bệnh nhân\n";
+        ss << "    " << bsMaxLoad->getHoTen() << " (" << bsMaxLoad->getMaBS() << "): " << maxBn << " bệnh nhân\n";
     } else {
-        ss << "  + N/A\n";
+        ss << "    N/A\n";
     }
     ss << "\n";
 
-    // 3. Tình trạng Phòng
     ss << "3. Tình trạng Phòng:\n";
     int tongGiuong = 0;
     int giuongTrong = 0;
@@ -405,9 +466,9 @@ std::string QuanLyBenhVien::thongKeTongHop() const {
     ss << "  + Số phòng đã đầy: " << phongDay << "\n";
     ss << "  + Phòng có nhiều BN nhất:\n";
     if (phongMaxLoad) {
-        ss << "  + " << phongMaxLoad->getMaPhong() << " (" << phongMaxLoad->getLoaiPhong() << "): " << maxBnPhong << "/" << phongMaxLoad->getSoGiuong() << " bệnh nhân\n";
+        ss << "    " << phongMaxLoad->getMaPhong() << " (" << phongMaxLoad->getLoaiPhong() << "): " << maxBnPhong << "/" << phongMaxLoad->getSoGiuong() << " bệnh nhân\n";
     } else {
-        ss << "  + N/A\n";
+        ss << "    N/A\n";
     }
 
     ss << "=======================================\n";
@@ -426,19 +487,18 @@ MainWindow::MainWindow(QWidget *parent)
     hienThiBacSi();
     hienThiPhong();
     hienThiDieuTri();
+    hienThiXuatVien();
     hienThiThongKe();
 }
 
 MainWindow::~MainWindow()
 {
-    // Destructor tự động gọi destructor của qlbv (đã lưu file)
 }
 
 void MainWindow::setupUI() {
     tabWidget = new QTabWidget(this);
     setCentralWidget(tabWidget);
 
-    // ÁP DỤNG STYLE ĐẸP (TRONG HÀM, KHÔNG BỊ LỖI)
     setStyleSheet(R"(
         QMainWindow { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f8f9fc, stop:1 #e0e7ff); }
         QTabWidget::pane { border: 1px solid #c0c4cc; background: white; border-radius: 12px; margin-top: 8px; }
@@ -476,36 +536,43 @@ void MainWindow::setupUI() {
     setupBacSiTab();
     setupPhongBenhTab();
     setupDieuTriTab();
+    setupXuatVienTab();
     setupThongKeTab();
 
     tabWidget->addTab(benhNhanTab, "Bệnh Nhân");
     tabWidget->addTab(bacSiTab, "Bác Sĩ");
     tabWidget->addTab(phongBenhTab, "Phòng Bệnh");
     tabWidget->addTab(dieuTriTab, "Phân Công/Ra Viện");
+    tabWidget->addTab(xuatVienTab, "Đã Xuất Viện");
     tabWidget->addTab(thongKeTab, "Thống Kê");
 
     connect(tabWidget, &QTabWidget::currentChanged, this, [this](int index) {
-        if (tabWidget->tabText(index) == "Bệnh Nhân") hienThiBenhNhan();
-        else if (tabWidget->tabText(index) == "Bác Sĩ") hienThiBacSi();
-        else if (tabWidget->tabText(index) == "Phòng Bệnh") hienThiPhong();
-        else if (tabWidget->tabText(index) == "Phân Công/Ra Viện") hienThiDieuTri();
-        else if (tabWidget->tabText(index) == "Thống Kê") hienThiThongKe();
+        QString tabText = tabWidget->tabText(index);
+        if (tabText == "Bệnh Nhân") hienThiBenhNhan();
+        else if (tabText == "Bác Sĩ") hienThiBacSi();
+        else if (tabText == "Phòng Bệnh") hienThiPhong();
+        else if (tabText == "Phân Công/Ra Viện") hienThiDieuTri();
+        else if (tabText == "Đã Xuất Viện") hienThiXuatVien();
+        else if (tabText == "Thống Kê") hienThiThongKe();
     });
 }
-
-// =======================================================
-// SETUP TABS (Đã cập nhật cột STT và Sắp xếp)
-// =======================================================
 
 void MainWindow::setupBenhNhanTab() {
     benhNhanTab = new QWidget;
     QVBoxLayout* mainLayout = new QVBoxLayout(benhNhanTab);
 
-    // 1. Phần tìm kiếm và lọc
     QHBoxLayout* filterLayout = new QHBoxLayout;
     QLabel* filterLabel = new QLabel("Tìm kiếm:");
     filterBNInput = new QLineEdit;
-    filterBNInput->setPlaceholderText("Nhập Mã BN/Họ Tên/Bệnh Lý");
+    filterBNInput->setPlaceholderText("Nhập Mã BN/Họ Tên");
+    QLabel* benhLyLabel = new QLabel("Bệnh Lý:");
+    filterBenhLyCombo = new QComboBox;
+    filterBenhLyCombo->addItem("Tất cả bệnh lý");  // mục 0
+    // Lấy danh sách bệnh lý từ chuyenKhoaMapping (bệnh lý chính là key)
+    for (const auto& pair : chuyenKhoaMapping) {
+        filterBenhLyCombo->addItem(QString::fromStdString(pair.first));
+    }
+
     filterBNCombo = new QComboBox;
     filterBNCombo->addItem("Tất cả BN");
     filterBNCombo->addItem("BN đã phân công");
@@ -516,30 +583,26 @@ void MainWindow::setupBenhNhanTab() {
     filterLayout->addWidget(filterBNInput);
     filterLayout->addWidget(filterBNCombo);
     mainLayout->addLayout(filterLayout);
+    filterLayout->addWidget(filterBenhLyCombo);
 
-    // 2. Bảng hiển thị
-    // Cập nhật: 7 cột (thêm STT)
-    benhNhanTable = new QTableWidget(0, 7);
-
+    benhNhanTable = new QTableWidget(0, 10);
     benhNhanTable->setHorizontalHeaderLabels(
         QStringList() << "STT" << "Mã BN" << "Họ Tên" << "Giới Tính"
-                      << "Tuổi" << "Bệnh Lý" << "Hộ Nghèo"
+                      << "Ngày Sinh" << "Tuổi" << "SĐT" << "Địa Chỉ"
+                      << "Bệnh Lý" << "Hộ Nghèo"
         );
 
-    // Bật sắp xếp khi click header
     benhNhanTable->setSortingEnabled(true);
-    benhNhanTable->sortByColumn(-1, Qt::AscendingOrder);// Không sắp xếp mặc định
+    benhNhanTable->sortByColumn(-1, Qt::AscendingOrder);
 
-    // Thiết lập chế độ kéo dãn tiêu đề cột
     QHeaderView* header = benhNhanTable->horizontalHeader();
     header->setSectionResizeMode(QHeaderView::ResizeToContents);
-    header->setSectionResizeMode(2, QHeaderView::Stretch); // Cột Họ Tên tự dãn
-    header->setSectionResizeMode(0, QHeaderView::Fixed); // Cột STT không dãn
-    benhNhanTable->setColumnWidth(0, 50); // Chiều rộng cố định cho STT
+    header->setSectionResizeMode(2, QHeaderView::Stretch);
+    header->setSectionResizeMode(0, QHeaderView::Fixed);
+    benhNhanTable->setColumnWidth(0, 50);
 
     mainLayout->addWidget(benhNhanTable);
 
-    // 3. Nút chức năng
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     btnThemBN = new QPushButton("Thêm BN");
     btnSuaBN = new QPushButton("Sửa BN");
@@ -553,20 +616,19 @@ void MainWindow::setupBenhNhanTab() {
     buttonLayout->addWidget(btnXuatBN);
     mainLayout->addLayout(buttonLayout);
 
-    // Connections
     connect(btnThemBN, &QPushButton::clicked, this, &MainWindow::onThemBenhNhan);
     connect(btnSuaBN, &QPushButton::clicked, this, &MainWindow::onSuaBenhNhan);
     connect(btnXoaBN, &QPushButton::clicked, this, &MainWindow::onXoaBenhNhan);
     connect(btnXuatBN, &QPushButton::clicked, this, &MainWindow::onXuatBenhNhan);
     connect(filterBNInput, &QLineEdit::textChanged, this, &MainWindow::onFilterBenhNhan);
     connect(filterBNCombo, &QComboBox::currentIndexChanged, this, &MainWindow::onFilterBenhNhan);
+    connect(filterBenhLyCombo, &QComboBox::currentIndexChanged, this, &MainWindow::onFilterBenhNhan);
 }
 
 void MainWindow::setupBacSiTab() {
     bacSiTab = new QWidget;
     QVBoxLayout* mainLayout = new QVBoxLayout(bacSiTab);
 
-    // 1. Phần tìm kiếm và lọc
     QHBoxLayout* filterLayout = new QHBoxLayout;
     QLabel* searchLabel = new QLabel("Tìm kiếm (Mã/Tên):");
     searchBacSiLine = new QLineEdit;
@@ -590,27 +652,23 @@ void MainWindow::setupBacSiTab() {
     filterLayout->addWidget(filterChuyenKhoaBacSiCombo);
     mainLayout->addLayout(filterLayout);
 
-    // 2. Bảng hiển thị
-    // Cập nhật: 5 cột (thêm STT)
-    bacSiTable = new QTableWidget(0, 5);
+    bacSiTable = new QTableWidget(0, 8);
     bacSiTable->setHorizontalHeaderLabels(
-        QStringList() << "STT" << "Mã BS" << "Họ Tên" << "Chuyên Khoa" << "Số BN Phụ Trách"
+        QStringList() << "STT" << "Mã BS" << "Họ Tên" << "Ngày Sinh"
+                      << "SĐT" << "Địa Chỉ" << "Chuyên Khoa" << "Số BN Phụ Trách"
         );
 
-    // Bật sắp xếp khi click header
     bacSiTable->setSortingEnabled(true);
-    bacSiTable->sortByColumn(-1, Qt::AscendingOrder); // Không sắp xếp mặc định
+    bacSiTable->sortByColumn(-1, Qt::AscendingOrder);
 
-    // Thiết lập chế độ kéo dãn tiêu đề cột
     QHeaderView* header = bacSiTable->horizontalHeader();
     header->setSectionResizeMode(QHeaderView::ResizeToContents);
-    header->setSectionResizeMode(2, QHeaderView::Stretch); // Cột Họ Tên tự dãn
-    header->setSectionResizeMode(0, QHeaderView::Fixed); // Cột STT không dãn
-    bacSiTable->setColumnWidth(0, 50); // Chiều rộng cố định cho STT
+    header->setSectionResizeMode(2, QHeaderView::Stretch);
+    header->setSectionResizeMode(0, QHeaderView::Fixed);
+    bacSiTable->setColumnWidth(0, 50);
 
     mainLayout->addWidget(bacSiTable);
 
-    // 3. Nút chức năng
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     btnThemBS = new QPushButton("Thêm BS");
     btnSuaBS = new QPushButton("Sửa BS");
@@ -624,7 +682,6 @@ void MainWindow::setupBacSiTab() {
     buttonLayout->addWidget(btnXuatBS);
     mainLayout->addLayout(buttonLayout);
 
-    // Connections
     connect(btnThemBS, &QPushButton::clicked, this, &MainWindow::onThemBacSi);
     connect(btnSuaBS, &QPushButton::clicked, this, &MainWindow::onSuaBacSi);
     connect(btnXoaBS, &QPushButton::clicked, this, &MainWindow::onXoaBacSi);
@@ -637,27 +694,22 @@ void MainWindow::setupPhongBenhTab() {
     phongBenhTab = new QWidget;
     QVBoxLayout* mainLayout = new QVBoxLayout(phongBenhTab);
 
-    // 1. Bảng hiển thị
-    // Cập nhật: 5 cột (thêm STT)
     phongBenhTable = new QTableWidget(0, 5);
     phongBenhTable->setHorizontalHeaderLabels(
         QStringList() << "STT" << "Mã Phòng" << "Loại Phòng" << "Số Giường" << "Số BN Đang Nằm"
         );
 
-    // Bật sắp xếp khi click header
     phongBenhTable->setSortingEnabled(true);
-    phongBenhTable->sortByColumn(-1, Qt::AscendingOrder);// Không sắp xếp mặc định
+    phongBenhTable->sortByColumn(-1, Qt::AscendingOrder);
 
-    // Thiết lập chế độ kéo dãn tiêu đề cột
     QHeaderView* header = phongBenhTable->horizontalHeader();
     header->setSectionResizeMode(QHeaderView::ResizeToContents);
-    header->setSectionResizeMode(2, QHeaderView::Stretch); // Cột Loại Phòng tự dãn
-    header->setSectionResizeMode(0, QHeaderView::Fixed); // Cột STT không dãn
-    phongBenhTable->setColumnWidth(0, 50); // Chiều rộng cố định cho STT
+    header->setSectionResizeMode(2, QHeaderView::Stretch);
+    header->setSectionResizeMode(0, QHeaderView::Fixed);
+    phongBenhTable->setColumnWidth(0, 50);
 
     mainLayout->addWidget(phongBenhTable);
 
-    // 2. Nút chức năng
     QHBoxLayout* buttonLayout = new QHBoxLayout;
     btnThemPhong = new QPushButton("Thêm Phòng");
     btnSuaPhong = new QPushButton("Sửa Phòng");
@@ -671,7 +723,6 @@ void MainWindow::setupPhongBenhTab() {
     buttonLayout->addWidget(btnXuatPhong);
     mainLayout->addLayout(buttonLayout);
 
-    // Connections
     connect(btnThemPhong, &QPushButton::clicked, this, &MainWindow::onThemPhong);
     connect(btnSuaPhong, &QPushButton::clicked, this, &MainWindow::onSuaPhong);
     connect(btnXoaPhong, &QPushButton::clicked, this, &MainWindow::onXoaPhong);
@@ -680,78 +731,157 @@ void MainWindow::setupPhongBenhTab() {
 
 void MainWindow::setupDieuTriTab() {
     dieuTriTab = new QWidget;
-    QHBoxLayout* mainLayout = new QHBoxLayout(dieuTriTab);
+    QVBoxLayout* mainLayout = new QVBoxLayout(dieuTriTab);
 
-    // Cột trái: BN chưa phân công
+    QHBoxLayout* searchLayout = new QHBoxLayout;
+    QLabel* searchLabel = new QLabel("Tìm kiếm:");
+    searchDieuTriInput = new QLineEdit;
+    searchDieuTriInput->setPlaceholderText("Nhập Mã BN hoặc Họ Tên để tìm kiếm...");
+    searchLayout->addWidget(searchLabel);
+    searchLayout->addWidget(searchDieuTriInput);
+    mainLayout->addLayout(searchLayout);
+
+    QHBoxLayout* contentLayout = new QHBoxLayout;
+
+    // Bảng BN chưa phân công
     QVBoxLayout* leftLayout = new QVBoxLayout;
-    QLabel* labelChuaPC = new QLabel("BN Chưa Phân Công BS/Phòng:");
-    listBenhNhanChuaPhanCong = new QListWidget;
+    QLabel* labelChuaPC = new QLabel("📋 Bệnh Nhân Chưa Phân Công BS/Phòng:");
+    labelChuaPC->setStyleSheet("font-weight: bold; font-size: 14px; color: #d32f2f;");
+    tableBenhNhanChuaPhanCong = new QTableWidget(0, 4);
+    tableBenhNhanChuaPhanCong->setHorizontalHeaderLabels(
+        QStringList() << "Mã BN" << "Họ Tên" << "Bệnh Lý" << "Ngày Nhập Viện"
+        );
+    tableBenhNhanChuaPhanCong->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    tableBenhNhanChuaPhanCong->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tableBenhNhanChuaPhanCong->setEditTriggers(QAbstractItemView::NoEditTriggers);
     leftLayout->addWidget(labelChuaPC);
-    leftLayout->addWidget(listBenhNhanChuaPhanCong);
+    leftLayout->addWidget(tableBenhNhanChuaPhanCong);
 
-    // Cột giữa: Nút chức năng
+    // Nút phân công và ra viện
     QVBoxLayout* centerLayout = new QVBoxLayout;
     centerLayout->addStretch(1);
-    btnPhanCong = new QPushButton("<< Phân Công >>");
-    btnPhanCong->setMinimumWidth(150);
-    btnRaVien = new QPushButton("Ra Viện >>");
-    btnRaVien->setMinimumWidth(150);
+    btnPhanCong = new QPushButton("➡️ Phân Công\nĐiều Trị");
+    btnPhanCong->setMinimumHeight(80);
+    btnPhanCong->setStyleSheet("font-size: 14px; font-weight: bold;");
+    btnRaVien = new QPushButton("✅ Ra Viện &\nThanh Toán");
+    btnRaVien->setMinimumHeight(80);
+    btnRaVien->setStyleSheet("font-size: 14px; font-weight: bold; background-color: #388e3c;");
     centerLayout->addWidget(btnPhanCong);
     centerLayout->addWidget(btnRaVien);
     centerLayout->addStretch(1);
 
-    // Cột phải: BN đã phân công
+    // Bảng BN đã phân công
     QVBoxLayout* rightLayout = new QVBoxLayout;
-    QLabel* labelDaPC = new QLabel("BN Đã Phân Công BS/Phòng:");
-    listBenhNhanDaPhanCong = new QListWidget;
+    QLabel* labelDaPC = new QLabel("✅ Bệnh Nhân Đã Phân Công BS/Phòng:");
+    labelDaPC->setStyleSheet("font-weight: bold; font-size: 14px; color: #388e3c;");
+    tableBenhNhanDaPhanCong = new QTableWidget(0, 6);
+    tableBenhNhanDaPhanCong->setHorizontalHeaderLabels(
+        QStringList() << "Mã BN" << "Họ Tên" << "Bệnh Lý" << "Bác Sĩ" << "Phòng" << "Ngày NV"
+        );
+    tableBenhNhanDaPhanCong->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    tableBenhNhanDaPhanCong->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tableBenhNhanDaPhanCong->setEditTriggers(QAbstractItemView::NoEditTriggers);
     rightLayout->addWidget(labelDaPC);
-    rightLayout->addWidget(listBenhNhanDaPhanCong);
+    rightLayout->addWidget(tableBenhNhanDaPhanCong);
 
-    mainLayout->addLayout(leftLayout);
-    mainLayout->addLayout(centerLayout);
-    mainLayout->addLayout(rightLayout);
+    contentLayout->addLayout(leftLayout, 5);
+    contentLayout->addLayout(centerLayout, 1);
+    contentLayout->addLayout(rightLayout, 5);
+    mainLayout->addLayout(contentLayout);
 
-    // Connections
     connect(btnPhanCong, &QPushButton::clicked, this, &MainWindow::onPhanCong);
     connect(btnRaVien, &QPushButton::clicked, this, &MainWindow::onRaVien);
+    connect(searchDieuTriInput, &QLineEdit::textChanged, this, &MainWindow::hienThiDieuTri);
+}
+
+void MainWindow::setupXuatVienTab() {
+    xuatVienTab = new QWidget;
+    QVBoxLayout* mainLayout = new QVBoxLayout(xuatVienTab);
+
+    // Thanh tìm kiếm và lọc
+    QHBoxLayout* filterLayout = new QHBoxLayout;
+    QLabel* searchLabel = new QLabel("Tìm kiếm:");
+    searchXuatVienInput = new QLineEdit;
+    searchXuatVienInput->setPlaceholderText("Nhập Mã BN/Họ Tên/Bệnh Lý");
+
+    QLabel* filterLabel = new QLabel("Lọc theo:");
+    filterXuatVienCombo = new QComboBox;
+    filterXuatVienCombo->addItem("Tất cả");
+    filterXuatVienCombo->addItem("Hộ nghèo");
+    filterXuatVienCombo->addItem("Xuất viện tuần này");
+    filterXuatVienCombo->addItem("Xuất viện tháng này");
+
+    filterLayout->addWidget(searchLabel);
+    filterLayout->addWidget(searchXuatVienInput);
+    filterLayout->addWidget(filterLabel);
+    filterLayout->addWidget(filterXuatVienCombo);
+    mainLayout->addLayout(filterLayout);
+
+    // Bảng danh sách đã xuất viện
+    xuatVienTable = new QTableWidget(0, 11);
+    xuatVienTable->setHorizontalHeaderLabels(
+        QStringList() << "STT" << "Mã BN" << "Họ Tên" << "Bệnh Lý"
+                      << "Ngày NV" << "Ngày RV" << "Số Ngày" << "Tổng Chi Phí"
+                      << "Hộ Nghèo" << "PTTT" << "Bác Sĩ"
+        );
+
+    xuatVienTable->setSortingEnabled(true);
+    xuatVienTable->sortByColumn(-1, Qt::AscendingOrder);
+
+    QHeaderView* header = xuatVienTable->horizontalHeader();
+    header->setSectionResizeMode(QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(2, QHeaderView::Stretch);
+    header->setSectionResizeMode(0, QHeaderView::Fixed);
+    xuatVienTable->setColumnWidth(0, 50);
+
+    mainLayout->addWidget(xuatVienTable);
+
+    // Nút chức năng
+    QHBoxLayout* buttonLayout = new QHBoxLayout;
+    btnXemChiTietXV = new QPushButton("Xem Chi Tiết");
+    btnXuatDSXuatVien = new QPushButton("Xuất Danh Sách");
+
+    buttonLayout->addWidget(btnXemChiTietXV);
+    buttonLayout->addStretch(1);
+    buttonLayout->addWidget(btnXuatDSXuatVien);
+    mainLayout->addLayout(buttonLayout);
+
+    connect(searchXuatVienInput, &QLineEdit::textChanged, this, &MainWindow::onFilterXuatVien);
+    connect(filterXuatVienCombo, &QComboBox::currentIndexChanged, this, &MainWindow::onFilterXuatVien);
+    connect(btnXemChiTietXV, &QPushButton::clicked, this, &MainWindow::onXemChiTietXuatVien);
+    connect(btnXuatDSXuatVien, &QPushButton::clicked, this, &MainWindow::onXuatDanhSachXuatVien);
 }
 
 void MainWindow::setupThongKeTab() {
     thongKeTab = new QWidget;
     QVBoxLayout* mainLayout = new QVBoxLayout(thongKeTab);
 
-    // Output TextEdit
     thongKeOutput = new QTextEdit;
     thongKeOutput->setReadOnly(true);
     thongKeOutput->setFontWeight(QFont::Bold);
 
-    // Button
     btnThongKe = new QPushButton("Cập Nhật Thống Kê");
 
     mainLayout->addWidget(thongKeOutput);
     mainLayout->addWidget(btnThongKe);
 
-    // Connection
     connect(btnThongKe, &QPushButton::clicked, this, &MainWindow::onThongKe);
 }
 
 // =======================================================
-// HIỂN THỊ DỮ LIỆU (Đã cập nhật cột STT và Sắp xếp số)
+// HIỂN THỊ DỮ LIỆU
 // =======================================================
 
 void MainWindow::hienThiBenhNhan() {
-    // Tắt sắp xếp tạm thời để load dữ liệu
     benhNhanTable->setSortingEnabled(false);
-
     benhNhanTable->setRowCount(0);
     int row = 0;
-    int stt = 1; // Khởi tạo số thứ tự
+    int stt = 1;
 
-    // Lấy danh sách bệnh nhân đã được lọc (hoặc tất cả)
     std::vector<std::shared_ptr<BenhNhan>> dsLoc;
     for (const auto& pair : qlbv.getDsBenhNhan()) {
         const auto& bn = pair.second;
-        if (checkFilterBenhNhan(bn)) { // Kiểm tra điều kiện lọc
+        if (!bn->isDaXuatVien() && checkFilterBenhNhan(bn)) {
             dsLoc.push_back(bn);
         }
     }
@@ -759,55 +889,38 @@ void MainWindow::hienThiBenhNhan() {
     benhNhanTable->setRowCount(dsLoc.size());
 
     for (const auto& bn : dsLoc) {
-        // Cột 0: Số Thứ Tự (STT)
         QTableWidgetItem* sttItem = new QTableWidgetItem(QString::number(stt++));
         sttItem->setTextAlignment(Qt::AlignCenter);
-        // Đặt data edit role là số để sắp xếp đúng
         sttItem->setData(Qt::EditRole, stt - 1);
         benhNhanTable->setItem(row, 0, sttItem);
 
-        // Cột 1: Mã BN
-        QTableWidgetItem* maItem = new QTableWidgetItem(QString::fromStdString(bn->getMaBN()));
-        benhNhanTable->setItem(row, 1, maItem);
+        benhNhanTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(bn->getMaBN())));
+        benhNhanTable->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(bn->getHoTen())));
+        benhNhanTable->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(bn->getGioiTinh())));
+        benhNhanTable->setItem(row, 4, new QTableWidgetItem(bn->getNgaySinh().toString("dd/MM/yyyy")));
 
-        // Cột 2: Họ Tên
-        QTableWidgetItem* tenItem = new QTableWidgetItem(QString::fromStdString(bn->getHoTen()));
-        benhNhanTable->setItem(row, 2, tenItem);
-
-        // Cột 3: Giới Tính
-        QTableWidgetItem* gtItem = new QTableWidgetItem(QString::fromStdString(bn->getGioiTinh()));
-        benhNhanTable->setItem(row, 3, gtItem);
-
-        // Cột 4: Tuổi - QUAN TRỌNG: Thiết lập DATA EDIT ROLE để sắp xếp theo SỐ
         QTableWidgetItem* tuoiItem = new QTableWidgetItem(QString::number(bn->getTuoi()));
         tuoiItem->setData(Qt::EditRole, bn->getTuoi());
         tuoiItem->setTextAlignment(Qt::AlignCenter);
-        benhNhanTable->setItem(row, 4, tuoiItem);
+        benhNhanTable->setItem(row, 5, tuoiItem);
 
-        // Cột 5: Bệnh Lý
-        QTableWidgetItem* benhItem = new QTableWidgetItem(QString::fromStdString(bn->getBenhLy()));
-        benhNhanTable->setItem(row, 5, benhItem);
-
-        // Cột 6: Hộ Nghèo
-        QTableWidgetItem* ngheoItem = new QTableWidgetItem(bn->isHoNgheo() ? "Có" : "Không");
-        benhNhanTable->setItem(row, 6, ngheoItem);
+        benhNhanTable->setItem(row, 6, new QTableWidgetItem(QString::fromStdString(bn->getSoDienThoai())));
+        benhNhanTable->setItem(row, 7, new QTableWidgetItem(QString::fromStdString(bn->getDiaChi())));
+        benhNhanTable->setItem(row, 8, new QTableWidgetItem(QString::fromStdString(bn->getBenhLy())));
+        benhNhanTable->setItem(row, 9, new QTableWidgetItem(bn->isHoNgheo() ? "Có" : "Không"));
 
         row++;
     }
 
-    // Sau khi load dữ liệu, bật lại sắp xếp
     benhNhanTable->setSortingEnabled(true);
 }
 
 void MainWindow::hienThiBacSi() {
-    // Tắt sắp xếp tạm thời
     bacSiTable->setSortingEnabled(false);
-
     bacSiTable->setRowCount(0);
     int row = 0;
-    int stt = 1; // Khởi tạo số thứ tự
+    int stt = 1;
 
-    // Lấy danh sách bác sĩ đã được lọc
     std::vector<std::shared_ptr<BacSi>> dsLoc;
     for (const auto& pair : qlbv.getDsBacSi()) {
         const auto& bs = pair.second;
@@ -819,47 +932,36 @@ void MainWindow::hienThiBacSi() {
     bacSiTable->setRowCount(dsLoc.size());
 
     for (const auto& bs : dsLoc) {
-        // Cột 0: Số Thứ Tự (STT)
         QTableWidgetItem* sttItem = new QTableWidgetItem(QString::number(stt++));
         sttItem->setTextAlignment(Qt::AlignCenter);
         sttItem->setData(Qt::EditRole, stt - 1);
         bacSiTable->setItem(row, 0, sttItem);
 
-        // Cột 1: Mã BS
-        QTableWidgetItem* maItem = new QTableWidgetItem(QString::fromStdString(bs->getMaBS()));
-        bacSiTable->setItem(row, 1, maItem);
+        bacSiTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(bs->getMaBS())));
+        bacSiTable->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(bs->getHoTen())));
+        bacSiTable->setItem(row, 3, new QTableWidgetItem(bs->getNgaySinh().toString("dd/MM/yyyy")));
+        bacSiTable->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(bs->getSoDienThoai())));
+        bacSiTable->setItem(row, 5, new QTableWidgetItem(QString::fromStdString(bs->getDiaChi())));
+        bacSiTable->setItem(row, 6, new QTableWidgetItem(QString::fromStdString(bs->getChuyenKhoa())));
 
-        // Cột 2: Họ Tên
-        QTableWidgetItem* tenItem = new QTableWidgetItem(QString::fromStdString(bs->getHoTen()));
-        bacSiTable->setItem(row, 2, tenItem);
-
-        // Cột 3: Chuyên Khoa
-        QTableWidgetItem* ckItem = new QTableWidgetItem(QString::fromStdString(bs->getChuyenKhoa()));
-        bacSiTable->setItem(row, 3, ckItem);
-
-        // Cột 4: Số BN Phụ Trách - QUAN TRỌNG: Thiết lập DATA EDIT ROLE để sắp xếp theo SỐ
         int soBN = qlbv.getBenhNhanPhuTrach(bs->getMaBS()).size();
         QTableWidgetItem* soBNItem = new QTableWidgetItem(QString::number(soBN));
         soBNItem->setData(Qt::EditRole, soBN);
         soBNItem->setTextAlignment(Qt::AlignCenter);
-        bacSiTable->setItem(row, 4, soBNItem);
+        bacSiTable->setItem(row, 7, soBNItem);
 
         row++;
     }
 
-    // Bật lại sắp xếp
     bacSiTable->setSortingEnabled(true);
 }
 
 void MainWindow::hienThiPhong() {
-    // Tắt sắp xếp tạm thời
     phongBenhTable->setSortingEnabled(false);
-
     phongBenhTable->setRowCount(0);
     int row = 0;
-    int stt = 1; // Khởi tạo số thứ tự
+    int stt = 1;
 
-    // Lấy danh sách phòng (không có lọc phức tạp)
     std::vector<std::shared_ptr<PhongBenh>> dsLoc;
     for (const auto& pair : qlbv.getDsPhong()) {
         dsLoc.push_back(pair.second);
@@ -871,27 +973,19 @@ void MainWindow::hienThiPhong() {
     phongBenhTable->setRowCount(dsLoc.size());
 
     for (const auto& phong : dsLoc) {
-        // Cột 0: Số Thứ Tự (STT)
         QTableWidgetItem* sttItem = new QTableWidgetItem(QString::number(stt++));
         sttItem->setTextAlignment(Qt::AlignCenter);
         sttItem->setData(Qt::EditRole, stt - 1);
         phongBenhTable->setItem(row, 0, sttItem);
 
-        // Cột 1: Mã Phòng
-        QTableWidgetItem* maItem = new QTableWidgetItem(QString::fromStdString(phong->getMaPhong()));
-        phongBenhTable->setItem(row, 1, maItem);
+        phongBenhTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(phong->getMaPhong())));
+        phongBenhTable->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(phong->getLoaiPhong())));
 
-        // Cột 2: Loại Phòng
-        QTableWidgetItem* loaiItem = new QTableWidgetItem(QString::fromStdString(phong->getLoaiPhong()));
-        phongBenhTable->setItem(row, 2, loaiItem);
-
-        // Cột 3: Số Giường - QUAN TRỌNG: Thiết lập DATA EDIT ROLE để sắp xếp theo SỐ
         QTableWidgetItem* giuongItem = new QTableWidgetItem(QString::number(phong->getSoGiuong()));
         giuongItem->setData(Qt::EditRole, phong->getSoGiuong());
         giuongItem->setTextAlignment(Qt::AlignCenter);
         phongBenhTable->setItem(row, 3, giuongItem);
 
-        // Cột 4: Số BN Đang Nằm - QUAN TRỌNG: Thiết lập DATA EDIT ROLE để sắp xếp theo SỐ
         QTableWidgetItem* bnItem = new QTableWidgetItem(QString::number(phong->getSoBNDangNam()));
         bnItem->setData(Qt::EditRole, phong->getSoBNDangNam());
         bnItem->setTextAlignment(Qt::AlignCenter);
@@ -900,25 +994,106 @@ void MainWindow::hienThiPhong() {
         row++;
     }
 
-    // Bật lại sắp xếp
     phongBenhTable->setSortingEnabled(true);
 }
 
 void MainWindow::hienThiDieuTri() {
-    listBenhNhanChuaPhanCong->clear();
-    listBenhNhanDaPhanCong->clear();
+    tableBenhNhanChuaPhanCong->setRowCount(0);
+    tableBenhNhanDaPhanCong->setRowCount(0);
 
+    QString searchText = searchDieuTriInput->text().trimmed().toLower();
+
+    int rowChua = 0, rowDa = 0;
     for (const auto& pair : qlbv.getDsBenhNhan()) {
         const auto& bn = pair.second;
-        QString text = QString::fromStdString(bn->getMaBN() + " - " + bn->getHoTen() + " (" + bn->getBenhLy() + ")");
+
+        // Chỉ hiển thị BN chưa xuất viện
+        if (bn->isDaXuatVien()) continue;
+
+        // Lọc theo tìm kiếm
+        if (!searchText.isEmpty()) {
+            QString bnText = QString::fromStdString(bn->getMaBN() + " " + bn->getHoTen()).toLower();
+            if (!bnText.contains(searchText)) continue;
+        }
+
         if (bn->getMaBSPhuTrach().empty() || bn->getMaPhongDieuTri().empty()) {
-            listBenhNhanChuaPhanCong->addItem(text);
+            // BN chưa phân công
+            tableBenhNhanChuaPhanCong->insertRow(rowChua);
+            tableBenhNhanChuaPhanCong->setItem(rowChua, 0, new QTableWidgetItem(QString::fromStdString(bn->getMaBN())));
+            tableBenhNhanChuaPhanCong->setItem(rowChua, 1, new QTableWidgetItem(QString::fromStdString(bn->getHoTen())));
+            tableBenhNhanChuaPhanCong->setItem(rowChua, 2, new QTableWidgetItem(QString::fromStdString(bn->getBenhLy())));
+            tableBenhNhanChuaPhanCong->setItem(rowChua, 3, new QTableWidgetItem(bn->getNgayNhapVien().toString("dd/MM/yyyy")));
+            rowChua++;
         } else {
-            QString detail = " | BS: " + QString::fromStdString(bn->getMaBSPhuTrach()) +
-                             " | Phòng: " + QString::fromStdString(bn->getMaPhongDieuTri());
-            listBenhNhanDaPhanCong->addItem(text + detail);
+            // BN đã phân công
+            tableBenhNhanDaPhanCong->insertRow(rowDa);
+            tableBenhNhanDaPhanCong->setItem(rowDa, 0, new QTableWidgetItem(QString::fromStdString(bn->getMaBN())));
+            tableBenhNhanDaPhanCong->setItem(rowDa, 1, new QTableWidgetItem(QString::fromStdString(bn->getHoTen())));
+            tableBenhNhanDaPhanCong->setItem(rowDa, 2, new QTableWidgetItem(QString::fromStdString(bn->getBenhLy())));
+
+            auto bs = qlbv.getBacSi(bn->getMaBSPhuTrach());
+            QString bsName = bs ? QString::fromStdString(bs->getHoTen()) : "N/A";
+            tableBenhNhanDaPhanCong->setItem(rowDa, 3, new QTableWidgetItem(bsName));
+            tableBenhNhanDaPhanCong->setItem(rowDa, 4, new QTableWidgetItem(QString::fromStdString(bn->getMaPhongDieuTri())));
+            tableBenhNhanDaPhanCong->setItem(rowDa, 5, new QTableWidgetItem(bn->getNgayNhapVien().toString("dd/MM/yyyy")));
+            rowDa++;
         }
     }
+}
+
+void MainWindow::hienThiXuatVien() {
+    xuatVienTable->setSortingEnabled(false);
+    xuatVienTable->setRowCount(0);
+    int row = 0;
+    int stt = 1;
+
+    std::vector<std::shared_ptr<BenhNhan>> dsLoc;
+    for (const auto& pair : qlbv.getDsBenhNhan()) {
+        const auto& bn = pair.second;
+        if (bn->isDaXuatVien() && checkFilterXuatVien(bn)) {
+            dsLoc.push_back(bn);
+        }
+    }
+
+    // Sắp xếp theo ngày ra viện (mới nhất trước)
+    std::sort(dsLoc.begin(), dsLoc.end(), [](const auto& a, const auto& b) {
+        return a->getNgayRaVien() > b->getNgayRaVien();
+    });
+
+    xuatVienTable->setRowCount(dsLoc.size());
+
+    for (const auto& bn : dsLoc) {
+        QTableWidgetItem* sttItem = new QTableWidgetItem(QString::number(stt++));
+        sttItem->setTextAlignment(Qt::AlignCenter);
+        xuatVienTable->setItem(row, 0, sttItem);
+
+        xuatVienTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(bn->getMaBN())));
+        xuatVienTable->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(bn->getHoTen())));
+        xuatVienTable->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(bn->getBenhLy())));
+        xuatVienTable->setItem(row, 4, new QTableWidgetItem(bn->getNgayNhapVien().toString("dd/MM/yyyy")));
+        xuatVienTable->setItem(row, 5, new QTableWidgetItem(bn->getNgayRaVien().toString("dd/MM/yyyy")));
+
+        int soNgay = bn->getNgayNhapVien().daysTo(bn->getNgayRaVien());
+        if (soNgay == 0) soNgay = 1;
+        QTableWidgetItem* soNgayItem = new QTableWidgetItem(QString::number(soNgay));
+        soNgayItem->setTextAlignment(Qt::AlignCenter);
+        xuatVienTable->setItem(row, 6, soNgayItem);
+
+        QTableWidgetItem* chiPhiItem = new QTableWidgetItem(QString::number(bn->getTongChiPhi(), 'f', 0) + " VNĐ");
+        chiPhiItem->setTextAlignment(Qt::AlignRight);
+        xuatVienTable->setItem(row, 7, chiPhiItem);
+
+        xuatVienTable->setItem(row, 8, new QTableWidgetItem(bn->isHoNgheo() ? "Có" : "Không"));
+        xuatVienTable->setItem(row, 9, new QTableWidgetItem(QString::fromStdString(bn->getPhuongThucThanhToan())));
+
+        auto bs = qlbv.getBacSi(bn->getMaBSPhuTrach());
+        QString bsName = bs ? QString::fromStdString(bs->getHoTen()) : "N/A";
+        xuatVienTable->setItem(row, 10, new QTableWidgetItem(bsName));
+
+        row++;
+    }
+
+    xuatVienTable->setSortingEnabled(true);
 }
 
 void MainWindow::hienThiThongKe() {
@@ -926,33 +1101,31 @@ void MainWindow::hienThiThongKe() {
 }
 
 // =======================================================
-// DIALOGS & SLOTS (Không thay đổi, giữ lại logic ban đầu)
+// DIALOGS
 // =======================================================
-
-// ... (Giữ nguyên các hàm `themSuaBenhNhanDialog`, `themSuaBacSiDialog`, `themSuaPhongDialog`, `phanCongDialog`, `raVienDialog` của bạn)
 
 void MainWindow::themSuaBenhNhanDialog(bool isThem, const std::string& maBN) {
     QDialog dialog(this);
     dialog.setWindowTitle(isThem ? "Thêm Bệnh Nhân" : "Sửa Bệnh Nhân");
-    dialog.setMinimumWidth(400);
+    dialog.setMinimumWidth(500);
 
     QGridLayout* layout = new QGridLayout(&dialog);
 
-    // Dữ liệu ban đầu
     std::shared_ptr<BenhNhan> bn_data = isThem ? nullptr : qlbv.getBenhNhan(maBN);
 
-    // Ma BN
     QLineEdit* maBNInput = new QLineEdit;
-    if (!isThem) {
+    if (isThem) {
+        maBNInput->setText(QString::fromStdString(qlbv.taoMaBNTuDong()));
+        maBNInput->setReadOnly(true);
+        maBNInput->setStyleSheet("background-color: #e0e0e0;");
+    } else {
         maBNInput->setText(QString::fromStdString(maBN));
         maBNInput->setReadOnly(true);
     }
 
-    // Ho Ten
     QLineEdit* hoTenInput = new QLineEdit;
     if (!isThem) hoTenInput->setText(QString::fromStdString(bn_data->getHoTen()));
 
-    // Gioi Tinh
     QComboBox* gioiTinhCombo = new QComboBox;
     gioiTinhCombo->addItem("Nam");
     gioiTinhCombo->addItem("Nữ");
@@ -960,49 +1133,54 @@ void MainWindow::themSuaBenhNhanDialog(bool isThem, const std::string& maBN) {
         gioiTinhCombo->setCurrentText(QString::fromStdString(bn_data->getGioiTinh()));
     }
 
-    // Tuoi
-    QSpinBox* tuoiSpinBox = new QSpinBox;
-    tuoiSpinBox->setRange(1, 120);
-    if (!isThem) tuoiSpinBox->setValue(bn_data->getTuoi());
-    else tuoiSpinBox->setValue(30);
+    QDateEdit* ngaySinhDateEdit = new QDateEdit(QDate::currentDate().addYears(-30));
+    ngaySinhDateEdit->setCalendarPopup(true);
+    ngaySinhDateEdit->setMaximumDate(QDate::currentDate());
+    if (!isThem) ngaySinhDateEdit->setDate(bn_data->getNgaySinh());
 
-    // Benh Ly
+    QLineEdit* sdtInput = new QLineEdit;
+    if (!isThem) sdtInput->setText(QString::fromStdString(bn_data->getSoDienThoai()));
+
+    QLineEdit* diaChiInput = new QLineEdit;
+    if (!isThem) diaChiInput->setText(QString::fromStdString(bn_data->getDiaChi()));
+
     QComboBox* benhLyCombo = new QComboBox;
-    benhLyCombo->addItem(""); // Lựa chọn trống
+    benhLyCombo->addItem("");
     for (const auto& pair : chuyenKhoaMapping) {
         benhLyCombo->addItem(QString::fromStdString(pair.first));
     }
     if (!isThem) benhLyCombo->setCurrentText(QString::fromStdString(bn_data->getBenhLy()));
 
-    // Ho Ngheo
     QCheckBox* hoNgheoCheck = new QCheckBox("Thuộc hộ nghèo");
     if (!isThem) hoNgheoCheck->setChecked(bn_data->isHoNgheo());
 
-    // Ngay Nhap Vien
     QDateEdit* ngayNVDateEdit = new QDateEdit(QDate::currentDate());
     ngayNVDateEdit->setCalendarPopup(true);
     if (!isThem) ngayNVDateEdit->setDate(bn_data->getNgayNhapVien());
 
-    // Nút OK/Cancel
     QPushButton* okButton = new QPushButton(isThem ? "Thêm" : "Lưu");
     QPushButton* cancelButton = new QPushButton("Hủy");
 
-    // Layout
-    layout->addWidget(new QLabel("Mã BN:"), 0, 0);
-    layout->addWidget(maBNInput, 0, 1);
-    layout->addWidget(new QLabel("Họ Tên:"), 1, 0);
-    layout->addWidget(hoTenInput, 1, 1);
-    layout->addWidget(new QLabel("Giới Tính:"), 2, 0);
-    layout->addWidget(gioiTinhCombo, 2, 1);
-    layout->addWidget(new QLabel("Tuổi:"), 3, 0);
-    layout->addWidget(tuoiSpinBox, 3, 1);
-    layout->addWidget(new QLabel("Bệnh Lý:"), 4, 0);
-    layout->addWidget(benhLyCombo, 4, 1);
-    layout->addWidget(hoNgheoCheck, 5, 1);
-    layout->addWidget(new QLabel("Ngày Nhập Viện:"), 6, 0);
-    layout->addWidget(ngayNVDateEdit, 6, 1);
-    layout->addWidget(okButton, 7, 0);
-    layout->addWidget(cancelButton, 7, 1);
+    int row = 0;
+    layout->addWidget(new QLabel("Mã BN (Tự động):"), row, 0);
+    layout->addWidget(maBNInput, row++, 1);
+    layout->addWidget(new QLabel("Họ Tên:"), row, 0);
+    layout->addWidget(hoTenInput, row++, 1);
+    layout->addWidget(new QLabel("Giới Tính:"), row, 0);
+    layout->addWidget(gioiTinhCombo, row++, 1);
+    layout->addWidget(new QLabel("Ngày Sinh:"), row, 0);
+    layout->addWidget(ngaySinhDateEdit, row++, 1);
+    layout->addWidget(new QLabel("Số Điện Thoại:"), row, 0);
+    layout->addWidget(sdtInput, row++, 1);
+    layout->addWidget(new QLabel("Địa Chỉ:"), row, 0);
+    layout->addWidget(diaChiInput, row++, 1);
+    layout->addWidget(new QLabel("Bệnh Lý:"), row, 0);
+    layout->addWidget(benhLyCombo, row++, 1);
+    layout->addWidget(hoNgheoCheck, row++, 1);
+    layout->addWidget(new QLabel("Ngày Nhập Viện:"), row, 0);
+    layout->addWidget(ngayNVDateEdit, row++, 1);
+    layout->addWidget(okButton, row, 0);
+    layout->addWidget(cancelButton, row++, 1);
 
     connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
     connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
@@ -1010,13 +1188,13 @@ void MainWindow::themSuaBenhNhanDialog(bool isThem, const std::string& maBN) {
     if (dialog.exec() == QDialog::Accepted) {
         try {
             std::string ma = maBNInput->text().toStdString();
-            if (ma.empty()) throw std::runtime_error("Mã BN không được để trống.");
-
             std::string hoTen = hoTenInput->text().toStdString();
             if (hoTen.empty()) throw std::runtime_error("Họ tên không được để trống.");
 
             std::string gioiTinh = gioiTinhCombo->currentText().toStdString();
-            int tuoi = tuoiSpinBox->value();
+            QDate ngaySinh = ngaySinhDateEdit->date();
+            std::string sdt = sdtInput->text().toStdString();
+            std::string diaChi = diaChiInput->text().toStdString();
             std::string benhLy = benhLyCombo->currentText().toStdString();
             if (benhLy.empty()) throw std::runtime_error("Phải chọn Bệnh Lý.");
 
@@ -1024,16 +1202,18 @@ void MainWindow::themSuaBenhNhanDialog(bool isThem, const std::string& maBN) {
             QDate ngayNV = ngayNVDateEdit->date();
 
             if (isThem) {
-                auto new_bn = std::make_shared<BenhNhan>(ma, hoTen, gioiTinh, tuoi, benhLy, hoNgheo, ngayNV);
+                auto new_bn = std::make_shared<BenhNhan>(ma, hoTen, gioiTinh, ngaySinh, sdt, diaChi, benhLy, hoNgheo, ngayNV);
                 qlbv.themBenhNhan(new_bn);
-                QMessageBox::information(this, "Thành công", "Đã thêm Bệnh nhân mới.");
+                qlbv.tangMaBNCounter();
+                QMessageBox::information(this, "Thành công", "Đã thêm Bệnh nhân mới với mã: " + QString::fromStdString(ma));
             } else {
                 bn_data->setHoTen(hoTen);
                 bn_data->setGioiTinh(gioiTinh);
-                bn_data->setTuoi(tuoi);
+                bn_data->setNgaySinh(ngaySinh);
+                bn_data->setSoDienThoai(sdt);
+                bn_data->setDiaChi(diaChi);
                 bn_data->setBenhLy(benhLy);
                 bn_data->setHoNgheo(hoNgheo);
-                // Ngày NV không được sửa sau khi nhập viện
                 QMessageBox::information(this, "Thành công", "Đã sửa thông tin Bệnh nhân.");
             }
             hienThiBenhNhan();
@@ -1048,608 +1228,622 @@ void MainWindow::themSuaBenhNhanDialog(bool isThem, const std::string& maBN) {
 void MainWindow::themSuaBacSiDialog(bool isThem, const std::string& maBS) {
     QDialog dialog(this);
     dialog.setWindowTitle(isThem ? "Thêm Bác Sĩ" : "Sửa Bác Sĩ");
-    dialog.setMinimumWidth(400);
+    dialog.setMinimumWidth(500);
 
     QGridLayout* layout = new QGridLayout(&dialog);
-
-    // Dữ liệu ban đầu
     std::shared_ptr<BacSi> bs_data = isThem ? nullptr : qlbv.getBacSi(maBS);
 
-    // Ma BS
     QLineEdit* maBSInput = new QLineEdit;
-    if (!isThem) {
+    if (isThem) {
+        maBSInput->setText(QString::fromStdString(qlbv.taoMaBSTuDong()));
+        maBSInput->setReadOnly(true);
+        maBSInput->setStyleSheet("background-color: #e0e0e0;");
+    } else {
         maBSInput->setText(QString::fromStdString(maBS));
         maBSInput->setReadOnly(true);
     }
 
-    // Ho Ten
     QLineEdit* hoTenInput = new QLineEdit;
     if (!isThem) hoTenInput->setText(QString::fromStdString(bs_data->getHoTen()));
 
-    // Gioi Tinh
     QComboBox* gioiTinhCombo = new QComboBox;
-    gioiTinhCombo->addItem("Nam");
-    gioiTinhCombo->addItem("Nữ");
-    if (!isThem) {
-        gioiTinhCombo->setCurrentText(QString::fromStdString(bs_data->getGioiTinh()));
-    }
+    gioiTinhCombo->addItems({"Nam", "Nữ"});
+    if (!isThem) gioiTinhCombo->setCurrentText(QString::fromStdString(bs_data->getGioiTinh()));
 
-    // Tuoi
-    QSpinBox* tuoiSpinBox = new QSpinBox;
-    tuoiSpinBox->setRange(25, 100);
-    if (!isThem) tuoiSpinBox->setValue(bs_data->getTuoi());
-    else tuoiSpinBox->setValue(35);
+    QDateEdit* ngaySinhEdit = new QDateEdit(QDate::currentDate().addYears(-60));
+    ngaySinhEdit->setCalendarPopup(true);
+    ngaySinhEdit->setMaximumDate(QDate::currentDate().addYears(-22));
+    if (!isThem) ngaySinhEdit->setDate(bs_data->getNgaySinh());
 
-    // Chuyen Khoa
+    QLineEdit* sdtInput = new QLineEdit;
+    if (!isThem) sdtInput->setText(QString::fromStdString(bs_data->getSoDienThoai()));
+
+    QLineEdit* diaChiInput = new QLineEdit;
+    if (!isThem) diaChiInput->setText(QString::fromStdString(bs_data->getDiaChi()));
+
     QComboBox* chuyenKhoaCombo = new QComboBox;
-    QSet<QString> chuyenKhoaSet;
-    for (const auto& pair : chuyenKhoaMapping) {
-        for (const auto& ck : pair.second) {
-            chuyenKhoaSet.insert(QString::fromStdString(ck));
-        }
+    QSet<QString> ckSet;
+    for (const auto& p : chuyenKhoaMapping) {
+        for (const auto& ck : p.second) ckSet << QString::fromStdString(ck);
     }
-    for (const QString& ck : chuyenKhoaSet) {
-        chuyenKhoaCombo->addItem(ck);
-    }
+    chuyenKhoaCombo->addItems(ckSet.values());
     if (!isThem) chuyenKhoaCombo->setCurrentText(QString::fromStdString(bs_data->getChuyenKhoa()));
 
-    // Nút OK/Cancel
-    QPushButton* okButton = new QPushButton(isThem ? "Thêm" : "Lưu");
-    QPushButton* cancelButton = new QPushButton("Hủy");
+    QPushButton* okBtn = new QPushButton(isThem ? "Thêm" : "Lưu");
+    QPushButton* cancelBtn = new QPushButton("Hủy");
 
-    // Layout
-    layout->addWidget(new QLabel("Mã BS:"), 0, 0);
-    layout->addWidget(maBSInput, 0, 1);
-    layout->addWidget(new QLabel("Họ Tên:"), 1, 0);
-    layout->addWidget(hoTenInput, 1, 1);
-    layout->addWidget(new QLabel("Giới Tính:"), 2, 0);
-    layout->addWidget(gioiTinhCombo, 2, 1);
-    layout->addWidget(new QLabel("Tuổi:"), 3, 0);
-    layout->addWidget(tuoiSpinBox, 3, 1);
-    layout->addWidget(new QLabel("Chuyên Khoa:"), 4, 0);
-    layout->addWidget(chuyenKhoaCombo, 4, 1);
-    layout->addWidget(okButton, 5, 0);
-    layout->addWidget(cancelButton, 5, 1);
+    int r = 0;
+    layout->addWidget(new QLabel("Mã BS:"), r, 0);    layout->addWidget(maBSInput, r++, 1);
+    layout->addWidget(new QLabel("Họ tên:"), r, 0);   layout->addWidget(hoTenInput, r++, 1);
+    layout->addWidget(new QLabel("Giới tính:"), r, 0); layout->addWidget(gioiTinhCombo, r++, 1);
+    layout->addWidget(new QLabel("Ngày sinh:"), r, 0); layout->addWidget(ngaySinhEdit, r++, 1);
+    layout->addWidget(new QLabel("SĐT:"), r, 0);      layout->addWidget(sdtInput, r++, 1);
+    layout->addWidget(new QLabel("Địa chỉ:"), r, 0);  layout->addWidget(diaChiInput, r++, 1);
+    layout->addWidget(new QLabel("Chuyên khoa:"), r, 0); layout->addWidget(chuyenKhoaCombo, r++, 1);
+    layout->addWidget(okBtn, r, 0); layout->addWidget(cancelBtn, r++, 1);
 
-    connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-    connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(okBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+    connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
 
     if (dialog.exec() == QDialog::Accepted) {
         try {
             std::string ma = maBSInput->text().toStdString();
-            if (ma.empty()) throw std::runtime_error("Mã BS không được để trống.");
-
-            std::string hoTen = hoTenInput->text().toStdString();
-            if (hoTen.empty()) throw std::runtime_error("Họ tên không được để trống.");
-
-            std::string gioiTinh = gioiTinhCombo->currentText().toStdString();
-            int tuoi = tuoiSpinBox->value();
-            std::string chuyenKhoa = chuyenKhoaCombo->currentText().toStdString();
+            std::string ten = hoTenInput->text().toStdString();
+            if (ten.empty()) throw std::runtime_error("Họ tên không được để trống");
 
             if (isThem) {
-                auto new_bs = std::make_shared<BacSi>(ma, hoTen, gioiTinh, tuoi, chuyenKhoa);
-                qlbv.themBacSi(new_bs);
-                QMessageBox::information(this, "Thành công", "Đã thêm Bác sĩ mới.");
+                auto bs = std::make_shared<BacSi>(ma, ten,
+                                                  gioiTinhCombo->currentText().toStdString(),
+                                                  ngaySinhEdit->date(),
+                                                  sdtInput->text().toStdString(),
+                                                  diaChiInput->text().toStdString(),
+                                                  chuyenKhoaCombo->currentText().toStdString());
+                qlbv.themBacSi(bs);
+                qlbv.tangMaBSCounter();
+                QMessageBox::information(this, "Thành công", "Thêm bác sĩ thành công!");
             } else {
-                bs_data->setHoTen(hoTen);
-                bs_data->setGioiTinh(gioiTinh);
-                bs_data->setTuoi(tuoi);
-                bs_data->setChuyenKhoa(chuyenKhoa);
-                QMessageBox::information(this, "Thành công", "Đã sửa thông tin Bác sĩ.");
+                bs_data->setHoTen(ten);
+                bs_data->setGioiTinh(gioiTinhCombo->currentText().toStdString());
+                bs_data->setNgaySinh(ngaySinhEdit->date());
+                bs_data->setSoDienThoai(sdtInput->text().toStdString());
+                bs_data->setDiaChi(diaChiInput->text().toStdString());
+                bs_data->setChuyenKhoa(chuyenKhoaCombo->currentText().toStdString());
+                QMessageBox::information(this, "Thành công", "Cập nhật bác sĩ thành công!");
             }
             hienThiBacSi();
             hienThiThongKe();
-        } catch (const std::runtime_error& e) {
+        } catch (const std::exception& e) {
             QMessageBox::critical(this, "Lỗi", e.what());
         }
     }
 }
 
 void MainWindow::themSuaPhongDialog(bool isThem, const std::string& maPhong) {
-    QDialog dialog(this);
-    dialog.setWindowTitle(isThem ? "Thêm Phòng Bệnh" : "Sửa Phòng Bệnh");
-    dialog.setMinimumWidth(400);
+    QDialog d(this);
+    d.setWindowTitle(isThem ? "Thêm Phòng" : "Sửa Phòng");
+    QGridLayout* l = new QGridLayout(&d);
 
-    QGridLayout* layout = new QGridLayout(&dialog);
+    QLineEdit* ma = new QLineEdit;
+    QComboBox* loai = new QComboBox; loai->addItems({"Thường", "VIP"});
+    QSpinBox* giuong = new QSpinBox; giuong->setRange(1, 50); giuong->setValue(10);
 
-    // Dữ liệu ban đầu
-    std::shared_ptr<PhongBenh> phong_data = isThem ? nullptr : qlbv.getPhong(maPhong);
-
-    // Ma Phong
-    QLineEdit* maPhongInput = new QLineEdit;
     if (!isThem) {
-        maPhongInput->setText(QString::fromStdString(maPhong));
-        maPhongInput->setReadOnly(true);
+        auto p = qlbv.getPhong(maPhong);
+        ma->setText(QString::fromStdString(p->getMaPhong()));
+        loai->setCurrentText(QString::fromStdString(p->getLoaiPhong()));
+        giuong->setValue(p->getSoGiuong());
+    } else {
+        ma->setText("P" + QString::number(qlbv.getDsPhong().size() + 1));
     }
+    ma->setReadOnly(!isThem);
 
-    // Loai Phong
-    QComboBox* loaiPhongCombo = new QComboBox;
-    loaiPhongCombo->addItem("Thường");
-    loaiPhongCombo->addItem("VIP");
-    if (!isThem) {
-        loaiPhongCombo->setCurrentText(QString::fromStdString(phong_data->getLoaiPhong()));
-    }
+    l->addWidget(new QLabel("Mã phòng:"), 0, 0); l->addWidget(ma, 0, 1);
+    l->addWidget(new QLabel("Loại phòng:"), 1, 0); l->addWidget(loai, 1, 1);
+    l->addWidget(new QLabel("Số giường:"), 2, 0); l->addWidget(giuong, 2, 1);
 
-    // So Giuong
-    QSpinBox* soGiuongSpinBox = new QSpinBox;
-    soGiuongSpinBox->setRange(1, 50);
-    if (!isThem) {
-        soGiuongSpinBox->setValue(phong_data->getSoGiuong());
-        // Không cho phép giảm giường nếu số BN đang nằm lớn hơn
-        if (phong_data->getSoBNDangNam() > 0) {
-            soGiuongSpinBox->setMinimum(phong_data->getSoBNDangNam());
-            soGiuongSpinBox->setToolTip("Không được giảm số giường dưới số BN đang nằm.");
-        }
-    }
-    else soGiuongSpinBox->setValue(10);
+    QPushButton* ok = new QPushButton(isThem ? "Thêm" : "Lưu");
+    QPushButton* cancel = new QPushButton("Hủy");
+    l->addWidget(ok, 3, 0); l->addWidget(cancel, 3, 1);
 
-    // Nút OK/Cancel
-    QPushButton* okButton = new QPushButton(isThem ? "Thêm" : "Lưu");
-    QPushButton* cancelButton = new QPushButton("Hủy");
+    connect(ok, &QPushButton::clicked, &d, &QDialog::accept);
+    connect(cancel, &QPushButton::clicked, &d, &QDialog::reject);
 
-    // Layout
-    layout->addWidget(new QLabel("Mã Phòng:"), 0, 0);
-    layout->addWidget(maPhongInput, 0, 1);
-    layout->addWidget(new QLabel("Loại Phòng:"), 1, 0);
-    layout->addWidget(loaiPhongCombo, 1, 1);
-    layout->addWidget(new QLabel("Số Giường:"), 2, 0);
-    layout->addWidget(soGiuongSpinBox, 2, 1);
-    layout->addWidget(okButton, 3, 0);
-    layout->addWidget(cancelButton, 3, 1);
-
-    connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-    connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
-
-    if (dialog.exec() == QDialog::Accepted) {
+    if (d.exec() == QDialog::Accepted) {
         try {
-            std::string ma = maPhongInput->text().toStdString();
-            if (ma.empty()) throw std::runtime_error("Mã Phòng không được để trống.");
-
-            std::string loaiPhong = loaiPhongCombo->currentText().toStdString();
-            int soGiuong = soGiuongSpinBox->value();
+            std::string m = ma->text().toStdString();
+            std::string lp = loai->currentText().toStdString();
+            int sg = giuong->value();
 
             if (isThem) {
-                auto new_phong = std::make_shared<PhongBenh>(ma, loaiPhong, soGiuong);
-                qlbv.themPhong(new_phong);
-                QMessageBox::information(this, "Thành công", "Đã thêm Phòng bệnh mới.");
+                auto p = std::make_shared<PhongBenh>(m, lp, sg);
+                qlbv.themPhong(p);
             } else {
-                // Kiểm tra logic giảm giường
-                if (soGiuong < phong_data->getSoBNDangNam()) {
-                    throw std::runtime_error("Số giường không hợp lệ, phải lớn hơn hoặc bằng số BN đang nằm.");
-                }
-                phong_data->setLoaiPhong(loaiPhong);
-                phong_data->setSoGiuong(soGiuong);
-                QMessageBox::information(this, "Thành công", "Đã sửa thông tin Phòng bệnh.");
+                auto p = qlbv.getPhong(maPhong);
+                p->setLoaiPhong(lp);
+                p->setSoGiuong(sg);
             }
             hienThiPhong();
             hienThiThongKe();
-        } catch (const std::runtime_error& e) {
+        } catch (const std::exception& e) {
             QMessageBox::critical(this, "Lỗi", e.what());
         }
     }
 }
 
 void MainWindow::phanCongDialog() {
-    QString selectedText = listBenhNhanChuaPhanCong->currentItem() ? listBenhNhanChuaPhanCong->currentItem()->text() : "";
-    if (selectedText.isEmpty()) {
-        QMessageBox::warning(this, "Cảnh báo", "Vui lòng chọn một Bệnh nhân chưa phân công.");
+    auto rows = tableBenhNhanChuaPhanCong->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        QMessageBox::warning(this, "Chọn BN", "Vui lòng chọn bệnh nhân cần phân công!");
         return;
     }
-
-    std::string maBN = selectedText.section(" - ", 0, 0).toStdString();
+    std::string maBN = tableBenhNhanChuaPhanCong->item(rows[0].row(), 0)->text().toStdString();
     auto bn = qlbv.getBenhNhan(maBN);
-    if (!bn) return; // Should not happen
 
-    QDialog dialog(this);
-    dialog.setWindowTitle("Phân Công Điều Trị: " + QString::fromStdString(bn->getHoTen()));
-    dialog.setMinimumWidth(400);
+    QDialog d(this);
+    d.setWindowTitle("Phân Công Điều Trị - " + QString::fromStdString(maBN));
+    d.setMinimumWidth(500);
+    QVBoxLayout* main = new QVBoxLayout(&d);
 
-    QGridLayout* layout = new QGridLayout(&dialog);
-
-    // 1. Chọn Bác sĩ
-    QLabel* bsLabel = new QLabel("Chọn Bác sĩ:");
-    QComboBox* bsCombo = new QComboBox;
-    bsCombo->addItem(""); // Cho phép bỏ trống
+    QLabel* lblBS = new QLabel("Chọn Bác Sĩ:");
+    QComboBox* cbBS = new QComboBox;
     std::string benhLy = bn->getBenhLy();
-    QSet<QString> availableBS;
-
-    // Lọc BS theo chuyên khoa phù hợp với bệnh lý
+    std::vector<std::string> ckPhuHop;
     auto it = chuyenKhoaMapping.find(benhLy);
-    std::vector<std::string> suitableCKs;
-    if (it != chuyenKhoaMapping.end()) {
-        suitableCKs = it->second;
-    }
+    if (it != chuyenKhoaMapping.end()) ckPhuHop = it->second;
 
-    for (const auto& pair : qlbv.getDsBacSi()) {
-        const auto& bs = pair.second;
-        QString bsText = QString::fromStdString(bs->getMaBS() + " - " + bs->getHoTen() + " (" + bs->getChuyenKhoa() + ")");
-        if (std::find(suitableCKs.begin(), suitableCKs.end(), bs->getChuyenKhoa()) != suitableCKs.end()) {
-            bsCombo->addItem(bsText);
-        } else {
-            // Cho phép chọn BS không phù hợp CK nhưng cảnh báo
-            availableBS.insert(bsText);
+    for (const auto& p : qlbv.getDsBacSi()) {
+        std::string ck = p.second->getChuyenKhoa();
+        if (std::find(ckPhuHop.begin(), ckPhuHop.end(), ck) != ckPhuHop.end() || ckPhuHop.empty()) {
+            cbBS->addItem(QString::fromStdString(p.second->getMaBS() + " - " + p.second->getHoTen() + " (" + ck + ")"),
+                          QString::fromStdString(p.second->getMaBS()));
         }
     }
 
-    // Thêm các BS không phù hợp CK vào sau (nếu chưa có)
-    for (const auto& pair : qlbv.getDsBacSi()) {
-        const auto& bs = pair.second;
-        QString bsText = QString::fromStdString(bs->getMaBS() + " - " + bs->getHoTen() + " (" + bs->getChuyenKhoa() + ")");
-        if (!availableBS.contains(bsText)) {
-            bsCombo->addItem(bsText);
-        }
-    }
-
-
-    // 2. Chọn Phòng
-    QLabel* phongLabel = new QLabel("Chọn Phòng Bệnh:");
-    QComboBox* phongCombo = new QComboBox;
-    phongCombo->addItem(""); // Cho phép bỏ trống
-    for (const auto& pair : qlbv.getDsPhong()) {
-        const auto& phong = pair.second;
-        QString phongText = QString::fromStdString(phong->getMaPhong() + " - " + phong->getLoaiPhong() + " (" + std::to_string(phong->getSoBNDangNam()) + "/" + std::to_string(phong->getSoGiuong()) + ")");
+    QLabel* lblPhong = new QLabel("Chọn Phòng:");
+    QComboBox* cbPhong = new QComboBox;
+    for (const auto& p : qlbv.getDsPhong()) {
+        auto phong = p.second;
         if (phong->getSoBNDangNam() < phong->getSoGiuong()) {
-            phongCombo->addItem(phongText); // Ưu tiên phòng còn trống
+            cbPhong->addItem(QString::fromStdString(phong->getMaPhong() + " - " + phong->getLoaiPhong() +
+                                                    " (Còn " + std::to_string(phong->getSoGiuong() - phong->getSoBNDangNam()) + " giường)"),
+                             QString::fromStdString(phong->getMaPhong()));
         }
     }
 
-    // Thêm phòng đầy (có thể chuyển BN từ phòng đầy sang phòng khác)
-    for (const auto& pair : qlbv.getDsPhong()) {
-        const auto& phong = pair.second;
-        if (phong->getSoBNDangNam() == phong->getSoGiuong()) {
-            QString phongText = QString::fromStdString(phong->getMaPhong() + " - " + phong->getLoaiPhong() + " (Đã đầy: " + std::to_string(phong->getSoBNDangNam()) + "/" + std::to_string(phong->getSoGiuong()) + ")");
-            phongCombo->addItem(phongText);
-        }
-    }
+    QHBoxLayout* btns = new QHBoxLayout;
+    QPushButton* ok = new QPushButton("Phân Công");
+    QPushButton* cancel = new QPushButton("Hủy");
+    btns->addWidget(ok); btns->addWidget(cancel);
 
+    main->addWidget(lblBS); main->addWidget(cbBS);
+    main->addWidget(lblPhong); main->addWidget(cbPhong);
+    main->addLayout(btns);
 
-    // Thiết lập giá trị mặc định nếu BN đã được phân công trước
-    if (!bn->getMaBSPhuTrach().empty()) {
-        QString currentBSText = QString::fromStdString(bn->getMaBSPhuTrach());
-        int index = bsCombo->findText(currentBSText, Qt::MatchStartsWith);
-        if (index != -1) bsCombo->setCurrentIndex(index);
-    }
-    if (!bn->getMaPhongDieuTri().empty()) {
-        QString currentPhongText = QString::fromStdString(bn->getMaPhongDieuTri());
-        int index = phongCombo->findText(currentPhongText, Qt::MatchStartsWith);
-        if (index != -1) phongCombo->setCurrentIndex(index);
-    }
+    connect(ok, &QPushButton::clicked, &d, &QDialog::accept);
+    connect(cancel, &QPushButton::clicked, &d, &QDialog::reject);
 
-
-    // Nút OK/Cancel
-    QPushButton* okButton = new QPushButton("Phân Công");
-    QPushButton* cancelButton = new QPushButton("Hủy");
-
-    // Layout
-    layout->addWidget(bsLabel, 0, 0);
-    layout->addWidget(bsCombo, 0, 1);
-    layout->addWidget(phongLabel, 1, 0);
-    layout->addWidget(phongCombo, 1, 1);
-    layout->addWidget(okButton, 2, 0);
-    layout->addWidget(cancelButton, 2, 1);
-
-    connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-    connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
-
-    if (dialog.exec() == QDialog::Accepted) {
+    if (d.exec() == QDialog::Accepted && cbBS->count() > 0 && cbPhong->count() > 0) {
         try {
-            std::string maBS = bsCombo->currentText().section(" - ", 0, 0).toStdString();
-            std::string maPhong = phongCombo->currentText().section(" - ", 0, 0).toStdString();
-
-            if (maBS.empty()) throw std::runtime_error("Phải chọn Bác sĩ phụ trách.");
-            if (maPhong.empty()) throw std::runtime_error("Phải chọn Phòng điều trị.");
-
-            qlbv.phanCongDieuTri(maBN, maBS, maPhong);
-
-            QMessageBox::information(this, "Thành công", "Đã phân công Bác sĩ và Phòng cho BN: " + QString::fromStdString(bn->getHoTen()));
-            hienThiBenhNhan();
-            hienThiBacSi();
-            hienThiPhong();
+            std::string maBS = cbBS->currentData().toString().toStdString();
+            std::string maP = cbPhong->currentData().toString().toStdString();
+            qlbv.phanCongDieuTri(maBN, maBS, maP);
+            QMessageBox::information(this, "Thành công", "Phân công thành công!");
             hienThiDieuTri();
             hienThiThongKe();
-        } catch (const std::runtime_error& e) {
+        } catch (const std::exception& e) {
             QMessageBox::critical(this, "Lỗi", e.what());
         }
     }
 }
 
 void MainWindow::raVienDialog() {
-    QString selectedText = listBenhNhanDaPhanCong->currentItem() ? listBenhNhanDaPhanCong->currentItem()->text() : "";
-    if (selectedText.isEmpty()) {
-        QMessageBox::warning(this, "Cảnh báo", "Vui lòng chọn một Bệnh nhân đã phân công.");
+    auto rows = tableBenhNhanDaPhanCong->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        QMessageBox::warning(this, "Chọn BN", "Vui lòng chọn bệnh nhân cần ra viện!");
         return;
     }
-
-    std::string maBN = selectedText.section(" - ", 0, 0).toStdString();
+    std::string maBN = tableBenhNhanDaPhanCong->item(rows[0].row(), 0)->text().toStdString();
     auto bn = qlbv.getBenhNhan(maBN);
-    if (!bn) return; // Should not happen
 
-    QDialog dialog(this);
-    dialog.setWindowTitle("Xác nhận Ra Viện: " + QString::fromStdString(bn->getHoTen()));
-    dialog.setMinimumWidth(400);
+    QDialog d(this);
+    d.setWindowTitle("Ra Viện & Thanh Toán - " + QString::fromStdString(maBN));
+    QGridLayout* l = new QGridLayout(&d);
 
-    QGridLayout* layout = new QGridLayout(&dialog);
+    QDateEdit* ngayRa = new QDateEdit(QDate::currentDate());
+    ngayRa->setCalendarPopup(true);
+    ngayRa->setMinimumDate(bn->getNgayNhapVien());
 
-    QLabel* infoLabel = new QLabel("Thông tin BN:\n" + QString::fromStdString(bn->toString()));
-    QDateEdit* ngayRVDateEdit = new QDateEdit(QDate::currentDate());
-    ngayRVDateEdit->setCalendarPopup(true);
-    ngayRVDateEdit->setMinimumDate(bn->getNgayNhapVien());
+    QComboBox* pttt = new QComboBox;
+    pttt->addItems({"Tiền Mặt", "Chuyển Khoản", "Thẻ"});
 
-    QPushButton* okButton = new QPushButton("Xác nhận Ra Viện");
-    QPushButton* cancelButton = new QPushButton("Hủy");
+    l->addWidget(new QLabel("Ngày ra viện:"), 0, 0);
+    l->addWidget(ngayRa, 0, 1);
+    l->addWidget(new QLabel("Phương thức thanh toán:"), 1, 0);
+    l->addWidget(pttt, 1, 1);
 
-    layout->addWidget(infoLabel, 0, 0, 1, 2);
-    layout->addWidget(new QLabel("Ngày Ra Viện:"), 1, 0);
-    layout->addWidget(ngayRVDateEdit, 1, 1);
-    layout->addWidget(okButton, 2, 0);
-    layout->addWidget(cancelButton, 2, 1);
+    QPushButton* ok = new QPushButton("Xuất Hóa Đơn & Ra Viện");
+    QPushButton* cancel = new QPushButton("Hủy");
+    l->addWidget(ok, 2, 0); l->addWidget(cancel, 2, 1);
 
-    connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-    connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(ok, &QPushButton::clicked, &d, &QDialog::accept);
+    connect(cancel, &QPushButton::clicked, &d, &QDialog::reject);
 
-    if (dialog.exec() == QDialog::Accepted) {
+    if (d.exec() == QDialog::Accepted) {
         try {
-            QDate ngayRaVien = ngayRVDateEdit->date();
-            double chiPhi = qlbv.raVien(maBN, ngayRaVien);
+            QDate ngayRV = ngayRa->date();
+            bn->setPhuongThucThanhToan(pttt->currentText().toStdString());
 
-            QString message = QString("BN **%1** đã ra viện thành công!\n\n")
-                                  .arg(QString::fromStdString(bn->getHoTen()));
-            message += QString("Tổng Chi Phí: **%1 VND**\n")
-                           .arg(chiPhi, 0, 'f', 0); // Định dạng số không có thập phân
+            double chiPhi = qlbv.raVien(maBN, ngayRV);
+            int soNgay = bn->getNgayNhapVien().daysTo(ngayRV);
+            if (soNgay == 0) soNgay = 1;
 
-            if (bn->isHoNgheo()) {
-                message += "(*Đã được giảm 50% chi phí do thuộc hộ nghèo)";
-            }
+            QMessageBox::information(this, "Thành công",
+                                     QString("Ra viện thành công!\nTổng chi phí: %1 VNĐ\nSố ngày nằm viện: %2")
+                                         .arg(chiPhi, 0, 'f', 0).arg(soNgay));
 
-            QMessageBox::information(this, "Ra Viện Thành Công", message);
-            hienThiBenhNhan();
-            hienThiBacSi();
-            hienThiPhong();
+            xuatHoaDonDialog(maBN, chiPhi, soNgay);
+
             hienThiDieuTri();
+            hienThiBenhNhan();
+            hienThiXuatVien();
             hienThiThongKe();
-        } catch (const std::runtime_error& e) {
+        } catch (const std::exception& e) {
             QMessageBox::critical(this, "Lỗi", e.what());
         }
     }
 }
 
-// =======================================================
-// HELPER & SLOTS CHỨC NĂNG
-// =======================================================
+void MainWindow::xuatHoaDonDialog(const std::string& maBN, double chiPhi, int soNgay)
+{
+    auto bn = qlbv.getBenhNhan(maBN);
+    if (!bn) return;
 
-bool MainWindow::checkFilterBenhNhan(std::shared_ptr<BenhNhan> bn) {
-    QString filterText = filterBNInput->text().trimmed();
-    QString filterCombo = filterBNCombo->currentText();
-    QString bnText = QString::fromStdString(bn->getMaBN() + " " + bn->getHoTen() + " " + bn->getBenhLy()).toLower();
+    QString fileName = QFileDialog::getSaveFileName(this, "Xuất hóa đơn",
+                                                    "HoaDon_" + QString::fromStdString(maBN) + ".pdf", "PDF (*.pdf)");
+    if (fileName.isEmpty()) return;
 
-    // Lọc theo Text
-    if (!filterText.isEmpty() && !bnText.contains(filterText.toLower())) {
-        return false;
+    QString noiDung =
+        "MÃ BỆNH NHÂN: " + QString::fromStdString(bn->getMaBN()) + "\n"
+                                                                   "HỌ TÊN: " + QString::fromStdString(bn->getHoTen()) + "\n"
+                                                   "PHÒNG: " + QString::fromStdString(bn->getMaPhongDieuTri()) + "\n"
+                                                            "SỐ NGÀY NẰM VIỆN: " + QString::number(soNgay) + " ngày\n"
+                                    "TỔNG VIỆN PHÍ: " + QString::number(chiPhi, 'f', 0) + " VNĐ\n";
+
+    if (bn->isHoNgheo()) {
+        noiDung += "→ Đã giảm 50% (hộ nghèo)\n";
     }
 
-    // Lọc theo ComboBox
-    if (filterCombo == "BN đã phân công" && (bn->getMaBSPhuTrach().empty() || bn->getMaPhongDieuTri().empty())) {
-        return false;
-    }
-    if (filterCombo == "BN chưa phân công" && (!bn->getMaBSPhuTrach().empty() && !bn->getMaPhongDieuTri().empty())) {
-        return false;
-    }
-    if (filterCombo == "BN hộ nghèo" && !bn->isHoNgheo()) {
-        return false;
-    }
+    noiDung += "PHƯƠNG THỨC THANH TOÁN: " + QString::fromStdString(bn->getPhuongThucThanhToan()) + "\n"
+                                                                                                   "NGÀY XUẤT VIỆN: " + QDate::currentDate().toString("dd/MM/yyyy") + "\n\n"
+                                                               "Cảm ơn quý bệnh nhân đã tin tưởng bệnh viện!";
 
-    return true;
+    QTextDocument doc;
+    doc.setPlainText(noiDung);
+
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setOutputFormat(QPrinter::PdfFormat);
+    printer.setOutputFileName(fileName);
+    printer.setPageSize(QPageSize(QPageSize::A4));
+    printer.setPageMargins(QMarginsF(20, 20, 20, 20), QPageLayout::Millimeter);
+
+    doc.print(&printer);
+
+    QMessageBox::information(this, "Thành công", "Đã xuất hóa đơn thành công!");
 }
 
-bool MainWindow::checkFilterBacSi(std::shared_ptr<BacSi> bs) {
-    QString searchText = searchBacSiLine->text().trimmed();
-    QString filterCK = filterChuyenKhoaBacSiCombo->currentText();
-    QString bsText = QString::fromStdString(bs->getMaBS() + " " + bs->getHoTen()).toLower();
+// =======================================================
+// SLOTS
+// =======================================================
 
-    // Lọc theo Text
-    if (!searchText.isEmpty() && !bsText.contains(searchText.toLower())) {
-        return false;
-    }
-
-    // Lọc theo Chuyên Khoa
-    if (filterCK != "Tất cả" && QString::fromStdString(bs->getChuyenKhoa()) != filterCK) {
-        return false;
-    }
-
-    return true;
+void MainWindow::onThemBenhNhan() {
+    themSuaBenhNhanDialog(true);
 }
 
-void MainWindow::onThemBenhNhan() { themSuaBenhNhanDialog(true); }
 void MainWindow::onSuaBenhNhan() {
     int row = benhNhanTable->currentRow();
-    if (row >= 0) {
-        std::string maBN = benhNhanTable->item(row, 1)->text().toStdString();
-        themSuaBenhNhanDialog(false, maBN);
-    } else {
-        QMessageBox::warning(this, "Cảnh báo", "Vui lòng chọn một Bệnh nhân để sửa.");
+    if (row < 0) {
+        QMessageBox::warning(this, "Chọn bệnh nhân", "Vui lòng chọn một bệnh nhân để sửa!");
+        return;
     }
+    QString maBN = benhNhanTable->item(row, 1)->text();
+    themSuaBenhNhanDialog(false, maBN.toStdString());
 }
-void MainWindow::onXoaBenhNhan() {
-    int row = benhNhanTable->currentRow();
-    if (row >= 0) {
-        std::string maBN = benhNhanTable->item(row, 1)->text().toStdString();
-        if (QMessageBox::question(this, "Xác nhận xóa", "Bạn có chắc chắn muốn xóa Bệnh nhân **" + QString::fromStdString(maBN) + "** không?") == QMessageBox::Yes) {
-            try {
-                qlbv.xoaBenhNhan(maBN);
-                QMessageBox::information(this, "Thành công", "Đã xóa Bệnh nhân.");
-                hienThiBenhNhan();
-                hienThiDieuTri();
-                hienThiThongKe();
-            } catch (const std::runtime_error& e) {
-                QMessageBox::critical(this, "Lỗi", e.what());
-            }
-        }
-    } else {
-        QMessageBox::warning(this, "Cảnh báo", "Vui lòng chọn một Bệnh nhân để xóa.");
-    }
-}
-void MainWindow::onXuatBenhNhan() {
-    QString fileName = QFileDialog::getSaveFileName(this, "Xuất danh sách Bệnh nhân", "danhsach_benhnhan.txt", "Text Files (*.txt)");
-    if (!fileName.isEmpty()) {
-        QString content;
-        content += "STT\tMã BN\tHọ Tên\tGiới Tính\tTuổi\tBệnh Lý\tHộ Nghèo\tBS PT\tPhòng DT\tNgày NV\n";
-        int stt = 1;
-        for (const auto& pair : qlbv.getDsBenhNhan()) {
-            const auto& bn = pair.second;
-            content += QString("%1\t%2\t%3\t%4\t%5\t%6\t%7\t%8\t%9\t%10\n")
-                           .arg(stt++)
-                           .arg(QString::fromStdString(bn->getMaBN()))
-                           .arg(QString::fromStdString(bn->getHoTen()))
-                           .arg(QString::fromStdString(bn->getGioiTinh()))
-                           .arg(bn->getTuoi())
-                           .arg(QString::fromStdString(bn->getBenhLy()))
-                           .arg(bn->isHoNgheo() ? "Có" : "Không")
-                           .arg(QString::fromStdString(bn->getMaBSPhuTrach()))
-                           .arg(QString::fromStdString(bn->getMaPhongDieuTri()))
-                           .arg(bn->getNgayNhapVien().toString("dd/MM/yyyy"));
-        }
-        QFile file(fileName);
-        if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-            QTextStream out(&file);
-            out.setEncoding(QStringConverter::Utf8);
-            out << content;
-            file.close();
-            QMessageBox::information(this, "Thành công", "Đã xuất file thành công.");
-        } else {
-            QMessageBox::critical(this, "Lỗi", "Không thể ghi file.");
-        }
-    }
-}
-void MainWindow::onFilterBenhNhan() { hienThiBenhNhan(); }
 
-void MainWindow::onThemBacSi() { themSuaBacSiDialog(true); }
+void MainWindow::onXoaBenhNhan() {
+    auto row = benhNhanTable->currentRow();
+    if (row < 0) return;
+    std::string ma = benhNhanTable->item(row, 1)->text().toStdString();
+    if (QMessageBox::question(this, "Xác nhận", "Xóa bệnh nhân " + QString::fromStdString(ma) + "?") == QMessageBox::Yes) {
+        try {
+            qlbv.xoaBenhNhan(ma);
+            hienThiBenhNhan();
+            hienThiDieuTri();
+            hienThiThongKe();
+        }
+        catch (const std::exception& e) {
+            QMessageBox::critical(this, "Lỗi", e.what());
+        }
+    }
+}
+
+void MainWindow::onXuatBenhNhan() {
+    QString fileName = QFileDialog::getSaveFileName(this, "Xuất danh sách bệnh nhân",
+                                                    "DanhSach_BenhNhan_" + QDate::currentDate().toString("dd-MM-yyyy") + ".csv",
+                                                    "CSV Files (*.csv)");
+    if (fileName.isEmpty()) return;
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::critical(this, "Lỗi", "Không thể tạo file!");
+        return;
+    }
+
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "\xEF\xBB\xBF";
+
+    out << "Mã BN,Họ tên,Giới tính,Ngày sinh,SĐT,Địa chỉ,Bệnh lý,Hộ nghèo,Ngày NV,BS phụ trách,Phòng\n";
+
+    for (const auto& p : qlbv.getDsBenhNhan()) {
+        auto bn = p.second;
+        if (bn->isDaXuatVien()) continue;
+
+        QString hoNgheo = bn->isHoNgheo() ? "Có" : "Không";
+        out << QString::fromStdString(bn->getMaBN()) << ","
+            << QString::fromStdString(bn->getHoTen()) << ","
+            << QString::fromStdString(bn->getGioiTinh()) << ","
+            << bn->getNgaySinh().toString("dd/MM/yyyy") << ","
+            << QString::fromStdString(bn->getSoDienThoai()) << ","
+            << QString::fromStdString(bn->getDiaChi()) << ","
+            << QString::fromStdString(bn->getBenhLy()) << ","
+            << hoNgheo << ","
+            << bn->getNgayNhapVien().toString("dd/MM/yyyy") << ","
+            << QString::fromStdString(bn->getMaBSPhuTrach().empty() ? "Chưa phân công" : bn->getMaBSPhuTrach()) << ","
+            << QString::fromStdString(bn->getMaPhongDieuTri().empty() ? "Chưa phân phòng" : bn->getMaPhongDieuTri()) << "\n";
+    }
+    file.close();
+    QMessageBox::information(this, "Thành công", "Đã xuất danh sách bệnh nhân đang điều trị!");
+}
+
+void MainWindow::onThemBacSi() {
+    themSuaBacSiDialog(true);
+}
+
 void MainWindow::onSuaBacSi() {
     int row = bacSiTable->currentRow();
-    if (row >= 0) {
-        std::string maBS = bacSiTable->item(row, 1)->text().toStdString();
-        themSuaBacSiDialog(false, maBS);
-    } else {
-        QMessageBox::warning(this, "Cảnh báo", "Vui lòng chọn một Bác sĩ để sửa.");
+    if (row < 0) {
+        QMessageBox::warning(this, "Chọn bác sĩ", "Vui lòng chọn một bác sĩ để sửa!");
+        return;
     }
+    QString maBS = bacSiTable->item(row, 1)->text();
+    themSuaBacSiDialog(false, maBS.toStdString());
 }
+
 void MainWindow::onXoaBacSi() {
     int row = bacSiTable->currentRow();
-    if (row >= 0) {
-        std::string maBS = bacSiTable->item(row, 1)->text().toStdString();
-        if (QMessageBox::question(this, "Xác nhận xóa", "Bạn có chắc chắn muốn xóa Bác sĩ **" + QString::fromStdString(maBS) + "** không? (Các BN sẽ bị gỡ phân công)") == QMessageBox::Yes) {
-            try {
-                qlbv.xoaBacSi(maBS);
-                QMessageBox::information(this, "Thành công", "Đã xóa Bác sĩ.");
-                hienThiBacSi();
-                hienThiBenhNhan();
-                hienThiDieuTri();
-                hienThiThongKe();
-            } catch (const std::runtime_error& e) {
-                QMessageBox::critical(this, "Lỗi", e.what());
-            }
+    if (row < 0) return;
+    std::string ma = bacSiTable->item(row, 1)->text().toStdString();
+    if (QMessageBox::question(this, "Xác nhận", "Xóa bác sĩ " + QString::fromStdString(ma) + "?\nCác bệnh nhân đang được bác sĩ này phụ trách sẽ bị bỏ phụ trách.") == QMessageBox::Yes) {
+        try {
+            qlbv.xoaBacSi(ma);
+            hienThiBacSi();
+            hienThiDieuTri();
+            hienThiThongKe();
+        } catch (const std::exception& e) {
+            QMessageBox::critical(this, "Lỗi", e.what());
         }
-    } else {
-        QMessageBox::warning(this, "Cảnh báo", "Vui lòng chọn một Bác sĩ để xóa.");
     }
 }
+
 void MainWindow::onXuatBacSi() {
-    QString fileName = QFileDialog::getSaveFileName(this, "Xuất danh sách Bác sĩ", "danhsach_bacsi.txt", "Text Files (*.txt)");
-    if (!fileName.isEmpty()) {
-        QString content;
-        content += "STT\tMã BS\tHọ Tên\tGiới Tính\tTuổi\tChuyên Khoa\tSố BN PT\n";
-        int stt = 1;
-        for (const auto& pair : qlbv.getDsBacSi()) {
-            const auto& bs = pair.second;
-            int soBN = qlbv.getBenhNhanPhuTrach(bs->getMaBS()).size();
-            content += QString("%1\t%2\t%3\t%4\t%5\t%6\t%7\n")
-                           .arg(stt++)
-                           .arg(QString::fromStdString(bs->getMaBS()))
-                           .arg(QString::fromStdString(bs->getHoTen()))
-                           .arg(QString::fromStdString(bs->getGioiTinh()))
-                           .arg(bs->getTuoi())
-                           .arg(QString::fromStdString(bs->getChuyenKhoa()))
-                           .arg(soBN);
-        }
-        QFile file(fileName);
-        if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-            QTextStream out(&file);
-            out.setEncoding(QStringConverter::Utf8);
-            out << content;
-            file.close();
-            QMessageBox::information(this, "Thành công", "Đã xuất file thành công.");
-        } else {
-            QMessageBox::critical(this, "Lỗi", "Không thể ghi file.");
-        }
+    QString fileName = QFileDialog::getSaveFileName(this, "Xuất danh sách bác sĩ",
+                                                    "DanhSach_BacSi_" + QDate::currentDate().toString("dd-MM-yyyy") + ".csv",
+                                                    "CSV Files (*.csv)");
+    if (fileName.isEmpty()) return;
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::critical(this, "Lỗi", "Không thể tạo file!");
+        return;
     }
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "\xEF\xBB\xBF"; // BOM cho Excel hiển thị tiếng Việt đúng
+    out << "Mã BS,Họ tên,Giới tính,Ngày sinh,SĐT,Địa chỉ,Chuyên khoa,Số BN phụ trách\n";
+    for (const auto& p : qlbv.getDsBacSi()) {
+        auto bs = p.second;
+        int soBN = qlbv.getBenhNhanPhuTrach(bs->getMaBS()).size();
+        out << QString::fromStdString(bs->getMaBS()) << ","
+            << QString::fromStdString(bs->getHoTen()) << ","
+            << QString::fromStdString(bs->getGioiTinh()) << ","
+            << bs->getNgaySinh().toString("dd/MM/yyyy") << ","
+            << QString::fromStdString(bs->getSoDienThoai()) << ","
+            << QString::fromStdString(bs->getDiaChi()) << ","
+            << QString::fromStdString(bs->getChuyenKhoa()) << ","
+            << soBN << "\n";
+    }
+    file.close();
+    QMessageBox::information(this, "Thành công", "Đã xuất danh sách bác sĩ!");
 }
-void MainWindow::onFilterBacSi() { hienThiBacSi(); }
 
+void MainWindow::onThemPhong() {
+    themSuaPhongDialog(true);
+}
 
-void MainWindow::onThemPhong() { themSuaPhongDialog(true); }
 void MainWindow::onSuaPhong() {
     int row = phongBenhTable->currentRow();
-    if (row >= 0) {
-        std::string maPhong = phongBenhTable->item(row, 1)->text().toStdString();
-        themSuaPhongDialog(false, maPhong);
-    } else {
-        QMessageBox::warning(this, "Cảnh báo", "Vui lòng chọn một Phòng bệnh để sửa.");
+    if (row < 0) {
+        QMessageBox::warning(this, "Chọn phòng", "Vui lòng chọn một phòng để sửa!");
+        return;
     }
+    QString maPhong = phongBenhTable->item(row, 1)->text();
+    themSuaPhongDialog(false, maPhong.toStdString());
 }
+
 void MainWindow::onXoaPhong() {
     int row = phongBenhTable->currentRow();
-    if (row >= 0) {
-        std::string maPhong = phongBenhTable->item(row, 1)->text().toStdString();
-        auto phong = qlbv.getPhong(maPhong);
-        if (phong && phong->getSoBNDangNam() > 0) {
-            QMessageBox::critical(this, "Lỗi", "Không thể xóa phòng đang có bệnh nhân.");
-            return;
+    if (row < 0) return;
+    std::string ma = phongBenhTable->item(row, 1)->text().toStdString();
+    if (QMessageBox::question(this, "Xác nhận", "Xóa phòng " + QString::fromStdString(ma) + "?\nCác bệnh nhân đang nằm phòng này sẽ bị bỏ phân phòng.") == QMessageBox::Yes) {
+        try {
+            qlbv.xoaPhong(ma);
+            hienThiPhong();
+            hienThiDieuTri();
+            hienThiThongKe();
+        } catch (const std::exception& e) {
+            QMessageBox::critical(this, "Lỗi", e.what());
         }
-
-        if (QMessageBox::question(this, "Xác nhận xóa", "Bạn có chắc chắn muốn xóa Phòng **" + QString::fromStdString(maPhong) + "** không?") == QMessageBox::Yes) {
-            try {
-                qlbv.xoaPhong(maPhong);
-                QMessageBox::information(this, "Thành công", "Đã xóa Phòng bệnh.");
-                hienThiPhong();
-                hienThiBenhNhan();
-                hienThiDieuTri();
-                hienThiThongKe();
-            } catch (const std::runtime_error& e) {
-                QMessageBox::critical(this, "Lỗi", e.what());
-            }
-        }
-    } else {
-        QMessageBox::warning(this, "Cảnh báo", "Vui lòng chọn một Phòng bệnh để xóa.");
     }
 }
+
 void MainWindow::onXuatPhong() {
-    QString fileName = QFileDialog::getSaveFileName(this, "Xuất danh sách Phòng bệnh", "danhsach_phongbenh.txt", "Text Files (*.txt)");
-    if (!fileName.isEmpty()) {
-        QString content;
-        content += "STT\tMã Phòng\tLoại Phòng\tSố Giường\tSố BN Đang Nằm\n";
-        int stt = 1;
-        for (const auto& pair : qlbv.getDsPhong()) {
-            const auto& phong = pair.second;
-            content += QString("%1\t%2\t%3\t%4\t%5\n")
-                           .arg(stt++)
-                           .arg(QString::fromStdString(phong->getMaPhong()))
-                           .arg(QString::fromStdString(phong->getLoaiPhong()))
-                           .arg(phong->getSoGiuong())
-                           .arg(phong->getSoBNDangNam());
-        }
-        QFile file(fileName);
-        if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-            QTextStream out(&file);
-            out.setEncoding(QStringConverter::Utf8);
-            out << content;
-            file.close();
-            QMessageBox::information(this, "Thành công", "Đã xuất file thành công.");
-        } else {
-            QMessageBox::critical(this, "Lỗi", "Không thể ghi file.");
-        }
+    QString fileName = QFileDialog::getSaveFileName(this, "Xuất danh sách phòng bệnh",
+                                                    "DanhSach_PhongBenh.csv", "CSV Files (*.csv)");
+    if (fileName.isEmpty()) return;
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "\xEF\xBB\xBF";
+    out << "Mã phòng,Loại phòng,Số giường,Số BN đang nằm,Giường trống\n";
+    for (const auto& p : qlbv.getDsPhong()) {
+        auto phong = p.second;
+        out << QString::fromStdString(phong->getMaPhong()) << ","
+            << QString::fromStdString(phong->getLoaiPhong()) << ","
+            << phong->getSoGiuong() << ","
+            << phong->getSoBNDangNam() << ","
+            << (phong->getSoGiuong() - phong->getSoBNDangNam()) << "\n";
     }
+    file.close();
+    QMessageBox::information(this, "Thành công", "Đã xuất danh sách phòng bệnh!");
 }
 
-void MainWindow::onPhanCong() { phanCongDialog(); }
-void MainWindow::onRaVien() { raVienDialog(); }
+void MainWindow::onPhanCong() {
+    phanCongDialog();
+}
 
-void MainWindow::onThongKe() { hienThiThongKe(); }
+void MainWindow::onRaVien() {
+    raVienDialog();
+}
+
+// Filter bệnh nhân
+bool MainWindow::checkFilterBenhNhan(const std::shared_ptr<BenhNhan>& bn) const {
+    // 1. Lọc theo ô tìm kiếm (Mã/Tên)
+    QString text = filterBNInput->text().trimmed().toLower();
+    if (!text.isEmpty()) {
+        QString search = QString::fromStdString(bn->getMaBN() + " " + bn->getHoTen()).toLower();
+        if (!search.contains(text)) return false;
+    }
+
+    // 2. Lọc theo combobox Bệnh Lý
+    if (filterBenhLyCombo->currentIndex() != 0) {  // không phải "Tất cả bệnh lý"
+        QString selectedBenhLy = filterBenhLyCombo->currentText();
+        if (QString::fromStdString(bn->getBenhLy()) != selectedBenhLy)
+            return false;
+    }
+
+    // 3. Lọc theo combobox cũ (đã phân công, hộ nghèo, v.v.)
+    int idx = filterBNCombo->currentIndex();
+    if (idx == 1) { // BN đã phân công
+        return !bn->getMaBSPhuTrach().empty() && !bn->getMaPhongDieuTri().empty();
+    } else if (idx == 2) { // BN chưa phân công
+        return bn->getMaBSPhuTrach().empty() || bn->getMaPhongDieuTri().empty();
+    } else if (idx == 3) { // Hộ nghèo
+        return bn->isHoNgheo();
+    }
+    return true; // Tất cả BN
+}
+
+void MainWindow::onFilterBenhNhan() {
+    hienThiBenhNhan();
+}
+
+// Filter bác sĩ
+bool MainWindow::checkFilterBacSi(const std::shared_ptr<BacSi>& bs) const {
+    QString text = searchBacSiLine->text().trimmed().toLower();
+    if (!text.isEmpty()) {
+        QString search = QString::fromStdString(bs->getMaBS() + " " + bs->getHoTen()).toLower();
+        if (!search.contains(text)) return false;
+    }
+    QString ck = filterChuyenKhoaBacSiCombo->currentText();
+    if (ck != "Tất cả" && ck != QString::fromStdString(bs->getChuyenKhoa())) return false;
+    return true;
+}
+
+void MainWindow::onFilterBacSi() {
+    hienThiBacSi();
+}
+
+// Filter xuất viện
+bool MainWindow::checkFilterXuatVien(const std::shared_ptr<BenhNhan>& bn) const {
+    QString text = searchXuatVienInput->text().trimmed().toLower();
+    if (!text.isEmpty()) {
+        QString search = QString::fromStdString(bn->getMaBN() + " " + bn->getHoTen() + " " + bn->getBenhLy()).toLower();
+        if (!search.contains(text)) return false;
+    }
+    int idx = filterXuatVienCombo->currentIndex();
+    QDate today = QDate::currentDate();
+    if (idx == 1) return bn->isHoNgheo();                                 // Hộ nghèo
+    if (idx == 2) return bn->getNgayRaVien().daysTo(today) <= 7;          // Tuần này
+    if (idx == 3) return bn->getNgayRaVien().daysTo(today) <= 30;         // Tháng này
+    return true;
+}
+
+void MainWindow::onFilterXuatVien() {
+    hienThiXuatVien();
+}
+
+void MainWindow::onXemChiTietXuatVien() {
+    int row = xuatVienTable->currentRow();
+    if (row < 0) {
+        QMessageBox::warning(this, "Chọn BN", "Vui lòng chọn một bệnh nhân đã xuất viện!");
+        return;
+    }
+    std::string maBN = xuatVienTable->item(row, 1)->text().toStdString();
+    auto bn = qlbv.getBenhNhan(maBN);
+    int soNgay = bn->getNgayNhapVien().daysTo(bn->getNgayRaVien());
+    if (soNgay == 0) soNgay = 1;
+    xuatHoaDonDialog(maBN, bn->getTongChiPhi(), soNgay);
+}
+
+void MainWindow::onXuatDanhSachXuatVien() {
+    QString fileName = QFileDialog::getSaveFileName(this, "Xuất danh sách đã xuất viện",
+                                                    "DanhSach_XuatVien_" + QDate::currentDate().toString("dd-MM-yyyy") + ".csv",
+                                                    "CSV Files (*.csv)");
+    if (fileName.isEmpty()) return;
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "\xEF\xBB\xBF";
+    out << "Mã BN,Họ tên,Bệnh lý,Ngày NV,Ngày RV,Số ngày,Tổng chi phí,Hộ nghèo,PTTT,Bác sĩ\n";
+    for (const auto& p : qlbv.getDsBenhNhan()) {
+        auto bn = p.second;
+        if (!bn->isDaXuatVien()) continue;
+        int soNgay = bn->getNgayNhapVien().daysTo(bn->getNgayRaVien());
+        if (soNgay == 0) soNgay = 1;
+        auto bs = qlbv.getBacSi(bn->getMaBSPhuTrach());
+        QString tenBS = bs ? QString::fromStdString(bs->getHoTen()) : "";
+        out << QString::fromStdString(bn->getMaBN()) << ","
+            << QString::fromStdString(bn->getHoTen()) << ","
+            << QString::fromStdString(bn->getBenhLy()) << ","
+            << bn->getNgayNhapVien().toString("dd/MM/yyyy") << ","
+            << bn->getNgayRaVien().toString("dd/MM/yyyy") << ","
+            << soNgay << ","
+            << QString::number(bn->getTongChiPhi(), 'f', 0) << ","
+            << (bn->isHoNgheo() ? "Có" : "Không") << ","
+            << QString::fromStdString(bn->getPhuongThucThanhToan()) << ","
+            << tenBS << "\n";
+    }
+    file.close();
+    QMessageBox::information(this, "Thành công", "Đã xuất danh sách bệnh nhân đã xuất viện!");
+}
+
+void MainWindow::onThongKe() {
+    hienThiThongKe();
+}
+
+// Destructor lưu dữ liệu khi đóng chương trình
+void MainWindow::closeEvent(QCloseEvent *event) {
+    qlbv.luuDuLieu();
+    event->accept();
+}

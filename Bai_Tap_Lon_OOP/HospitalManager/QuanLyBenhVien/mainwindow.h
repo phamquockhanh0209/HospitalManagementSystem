@@ -41,27 +41,23 @@ struct CauHinhGia {
 
 // ============= ÁNH XẠ BỆNH LÝ - CHUYÊN KHOA =============
 const std::unordered_map<std::string, std::vector<std::string>> chuyenKhoaMapping = {
-    {"Nội Tim Mạch", {"Tim Mạch"}},
-    {"Ngoại Tim Mạch", {"Tim Mạch"}},
+    {"Nội tim mạch", {"Tim Mạch"}},
+    {"Ngoại tim mạch", {"Tim Mạch"}},
+     {"Hở van tim", {"Tim Mạch"}},
 
     {"Nội Hô Hấp", {"Hô Hấp"}},
     {"Nhi", {"Hô Hấp"}},
-
     {"Nội Tiêu Hóa", {"Tiêu Hóa"}},
     {"Ngoại Tiêu Hóa", {"Tiêu Hóa"}},
-
     {"Nội Thần Kinh", {"Thần Kinh"}},
     {"Ngoại Thần Kinh", {"Thần Kinh"}},
-
     {"Chấn Thương Chỉnh Hình", {"Cơ Xương Khớp"}},
     {"Nội Cơ Xương Khớp", {"Cơ Xương Khớp"}},
-
     {"Truyền Nhiễm", {"Truyền Nhiễm"}},
-
-    // Các chuyên khoa Tổng Quát có thể bao quát nhiều loại bệnh lý
     {"Nội Tổng Quát", {"Truyền Nhiễm", "Khác"}},
     {"Ngoại Tổng Quát", {"Khác"}}
 };
+
 // =======================================================
 // CÁC LỚP ĐỐI TƯỢNG CƠ BẢN
 // =======================================================
@@ -71,23 +67,39 @@ private:
     std::string ma;
     std::string hoTen;
     std::string gioiTinh;
-    int tuoi;
+    QDate ngaySinh;
+    std::string soDienThoai;
+    std::string diaChi;
 
 public:
-    Nguoi(const std::string& ma, const std::string& hoTen, const std::string& gioiTinh, int tuoi)
-        : ma(ma), hoTen(hoTen), gioiTinh(gioiTinh), tuoi(tuoi) {}
+    Nguoi(const std::string& ma, const std::string& hoTen, const std::string& gioiTinh,
+          const QDate& ngaySinh, const std::string& sdt, const std::string& diaChi)
+        : ma(ma), hoTen(hoTen), gioiTinh(gioiTinh), ngaySinh(ngaySinh),
+        soDienThoai(sdt), diaChi(diaChi) {}
     virtual ~Nguoi() {}
 
-    // Getters
     std::string getMa() const { return ma; }
     std::string getHoTen() const { return hoTen; }
     std::string getGioiTinh() const { return gioiTinh; }
-    int getTuoi() const { return tuoi; }
+    QDate getNgaySinh() const { return ngaySinh; }
+    std::string getSoDienThoai() const { return soDienThoai; }
+    std::string getDiaChi() const { return diaChi; }
 
-    // Setters
+    int getTuoi() const {
+        QDate today = QDate::currentDate();
+        int age = today.year() - ngaySinh.year();
+        if (today.month() < ngaySinh.month() ||
+            (today.month() == ngaySinh.month() && today.day() < ngaySinh.day())) {
+            age--;
+        }
+        return age;
+    }
+
     void setHoTen(const std::string& ten) { hoTen = ten; }
     void setGioiTinh(const std::string& gt) { gioiTinh = gt; }
-    void setTuoi(int t) { tuoi = t; }
+    void setNgaySinh(const QDate& ns) { ngaySinh = ns; }
+    void setSoDienThoai(const std::string& sdt) { soDienThoai = sdt; }
+    void setDiaChi(const std::string& dc) { diaChi = dc; }
 
     virtual std::string toString() const = 0;
 };
@@ -95,44 +107,61 @@ public:
 class BenhNhan : public Nguoi {
 private:
     std::string benhLy;
-    bool hoNgheo; // True nếu thuộc hộ nghèo, False nếu không
-    std::string maBSPhuTrach; // Mã bác sĩ phụ trách
-    std::string maPhongDieuTri; // Mã phòng điều trị
+    bool hoNgheo;
+    std::string maBSPhuTrach;
+    std::string maPhongDieuTri;
     QDate ngayNhapVien;
+    QDate ngayRaVien;
+    std::string phuongThucThanhToan;
+    double tongChiPhi;
+    bool daXuatVien;
 
 public:
-    BenhNhan(const std::string& maBN, const std::string& hoTen, const std::string& gioiTinh, int tuoi,
+    BenhNhan(const std::string& maBN, const std::string& hoTen, const std::string& gioiTinh,
+             const QDate& ngaySinh, const std::string& sdt, const std::string& diaChi,
              const std::string& benhLy, bool hoNgheo, const QDate& ngayNV)
-        : Nguoi(maBN, hoTen, gioiTinh, tuoi), benhLy(benhLy), hoNgheo(hoNgheo), ngayNhapVien(ngayNV) {
+        : Nguoi(maBN, hoTen, gioiTinh, ngaySinh, sdt, diaChi),
+        benhLy(benhLy), hoNgheo(hoNgheo), ngayNhapVien(ngayNV),
+        phuongThucThanhToan("Tiền Mặt"), tongChiPhi(0), daXuatVien(false) {
         maBSPhuTrach = "";
         maPhongDieuTri = "";
     }
 
-    // Getters
     std::string getMaBN() const { return getMa(); }
     std::string getBenhLy() const { return benhLy; }
     bool isHoNgheo() const { return hoNgheo; }
     std::string getMaBSPhuTrach() const { return maBSPhuTrach; }
     std::string getMaPhongDieuTri() const { return maPhongDieuTri; }
     QDate getNgayNhapVien() const { return ngayNhapVien; }
+    QDate getNgayRaVien() const { return ngayRaVien; }
+    std::string getPhuongThucThanhToan() const { return phuongThucThanhToan; }
+    double getTongChiPhi() const { return tongChiPhi; }
+    bool isDaXuatVien() const { return daXuatVien; }
 
-    // Setters
     void setBenhLy(const std::string& bl) { benhLy = bl; }
     void setHoNgheo(bool hn) { hoNgheo = hn; }
     void setMaBSPhuTrach(const std::string& maBS) { maBSPhuTrach = maBS; }
     void setMaPhongDieuTri(const std::string& maPhong) { maPhongDieuTri = maPhong; }
+    void setPhuongThucThanhToan(const std::string& pttt) { phuongThucThanhToan = pttt; }
+    void setNgayRaVien(const QDate& nrv) { ngayRaVien = nrv; }
+    void setTongChiPhi(double cp) { tongChiPhi = cp; }
+    void setDaXuatVien(bool dxv) { daXuatVien = dxv; }
 
     std::string toString() const override {
         std::stringstream ss;
         ss << "Mã BN: " << getMaBN()
            << ", Tên: " << getHoTen()
            << ", Giới Tính: " << getGioiTinh()
+           << ", Ngày Sinh: " << getNgaySinh().toString("dd/MM/yyyy").toStdString()
            << ", Tuổi: " << getTuoi()
+           << ", SĐT: " << getSoDienThoai()
+           << ", Địa Chỉ: " << getDiaChi()
            << ", Bệnh Lý: " << benhLy
            << ", Hộ Nghèo: " << (hoNgheo ? "Có" : "Không")
            << ", BS PT: " << maBSPhuTrach
            << ", Phòng: " << maPhongDieuTri
-           << ", Ngày NV: " << ngayNhapVien.toString("dd/MM/yyyy").toStdString();
+           << ", Ngày NV: " << ngayNhapVien.toString("dd/MM/yyyy").toStdString()
+           << ", Đã xuất viện: " << (daXuatVien ? "Có" : "Không");
         return ss.str();
     }
 };
@@ -142,15 +171,13 @@ private:
     std::string chuyenKhoa;
 
 public:
-    BacSi(const std::string& maBS, const std::string& hoTen, const std::string& gioiTinh, int tuoi,
+    BacSi(const std::string& maBS, const std::string& hoTen, const std::string& gioiTinh,
+          const QDate& ngaySinh, const std::string& sdt, const std::string& diaChi,
           const std::string& chuyenKhoa)
-        : Nguoi(maBS, hoTen, gioiTinh, tuoi), chuyenKhoa(chuyenKhoa) {}
+        : Nguoi(maBS, hoTen, gioiTinh, ngaySinh, sdt, diaChi), chuyenKhoa(chuyenKhoa) {}
 
-    // Getters
     std::string getMaBS() const { return getMa(); }
     std::string getChuyenKhoa() const { return chuyenKhoa; }
-
-    // Setters
     void setChuyenKhoa(const std::string& ck) { chuyenKhoa = ck; }
 
     std::string toString() const override {
@@ -158,7 +185,10 @@ public:
         ss << "Mã BS: " << getMaBS()
            << ", Tên: " << getHoTen()
            << ", Giới Tính: " << getGioiTinh()
+           << ", Ngày Sinh: " << getNgaySinh().toString("dd/MM/yyyy").toStdString()
            << ", Tuổi: " << getTuoi()
+           << ", SĐT: " << getSoDienThoai()
+           << ", Địa Chỉ: " << getDiaChi()
            << ", Chuyên Khoa: " << chuyenKhoa;
         return ss.str();
     }
@@ -167,23 +197,19 @@ public:
 class PhongBenh {
 private:
     std::string maPhong;
-    std::string loaiPhong; // Thường/VIP
+    std::string loaiPhong;
     int soGiuong;
     int soBNDangNam;
 
 public:
     PhongBenh(const std::string& maPhong, const std::string& loaiPhong, int soGiuong)
-        : maPhong(maPhong), loaiPhong(loaiPhong), soGiuong(soGiuong) {
-        soBNDangNam = 0;
-    }
+        : maPhong(maPhong), loaiPhong(loaiPhong), soGiuong(soGiuong), soBNDangNam(0) {}
 
-    // Getters
     std::string getMaPhong() const { return maPhong; }
     std::string getLoaiPhong() const { return loaiPhong; }
     int getSoGiuong() const { return soGiuong; }
     int getSoBNDangNam() const { return soBNDangNam; }
 
-    // Setters
     void setLoaiPhong(const std::string& lp) { loaiPhong = lp; }
     void setSoGiuong(int sg) { soGiuong = sg; }
     void tangBN() {
@@ -214,46 +240,46 @@ private:
     std::unordered_map<std::string, std::shared_ptr<BenhNhan>> dsBenhNhan;
     std::unordered_map<std::string, std::shared_ptr<BacSi>> dsBacSi;
     std::unordered_map<std::string, std::shared_ptr<PhongBenh>> dsPhong;
+    int maBNCounter;
+    int maBSCounter;
 
     void luuFile(const std::string& filename, const std::string& content) const;
     std::string docFile(const std::string& filename) const;
-    void luuDuLieu();
-    void docDuLieu();
 
 public:
+
+    void luuDuLieu();
+    void docDuLieu();
     QuanLyBenhVien();
     ~QuanLyBenhVien() { luuDuLieu(); }
 
-    // Thêm
+    void tangMaBNCounter() { maBNCounter++; }
+    void tangMaBSCounter() { maBSCounter++; }
+    std::string taoMaBNTuDong() const;
+    std::string taoMaBSTuDong() const;
+
     void themBenhNhan(std::shared_ptr<BenhNhan> bn);
     void themBacSi(std::shared_ptr<BacSi> bs);
     void themPhong(std::shared_ptr<PhongBenh> phong);
 
-    // Xóa
     void xoaBenhNhan(const std::string& maBN);
     void xoaBacSi(const std::string& maBS);
     void xoaPhong(const std::string& maPhong);
 
-    // Sửa (có thể dùng getter + setter để sửa trực tiếp)
-    // Cập nhật quan hệ (phân công / ra viện)
     void phanCongDieuTri(const std::string& maBN, const std::string& maBS, const std::string& maPhong);
-    double raVien(const std::string& maBN, const QDate& ngayRaVien); // Trả về chi phí
+    double raVien(const std::string& maBN, const QDate& ngayRaVien);
 
-    // Tra cứu
     std::shared_ptr<BenhNhan> getBenhNhan(const std::string& maBN) const;
     std::shared_ptr<BacSi> getBacSi(const std::string& maBS) const;
     std::shared_ptr<PhongBenh> getPhong(const std::string& maPhong) const;
     std::vector<std::shared_ptr<BenhNhan>> getBenhNhanPhuTrach(const std::string& maBS) const;
 
-    // Get toàn bộ danh sách
     const std::unordered_map<std::string, std::shared_ptr<BenhNhan>>& getDsBenhNhan() const { return dsBenhNhan; }
     const std::unordered_map<std::string, std::shared_ptr<BacSi>>& getDsBacSi() const { return dsBacSi; }
     const std::unordered_map<std::string, std::shared_ptr<PhongBenh>>& getDsPhong() const { return dsPhong; }
 
-    // Thống kê
     std::string thongKeTongHop() const;
 
-    // Helper kiểm tra
     bool isMaBNUnique(const std::string& ma) const { return dsBenhNhan.find(ma) == dsBenhNhan.end(); }
     bool isMaBSUnique(const std::string& ma) const { return dsBacSi.find(ma) == dsBacSi.end(); }
     bool isMaPhongUnique(const std::string& ma) const { return dsPhong.find(ma) == dsPhong.end(); }
@@ -272,64 +298,62 @@ public:
     ~MainWindow();
 
 private:
-    // Setup UI tabs
     void setupUI();
     void setupBenhNhanTab();
     void setupBacSiTab();
     void setupPhongBenhTab();
     void setupDieuTriTab();
+    void setupXuatVienTab();
     void setupThongKeTab();
 
-    // Hiển thị dữ liệu
     void hienThiBenhNhan();
     void hienThiBacSi();
     void hienThiPhong();
     void hienThiDieuTri();
+    void hienThiXuatVien();
     void hienThiThongKe();
 
-    // Dialogs
     void themSuaBenhNhanDialog(bool isThem = true, const std::string& maBN = "");
     void themSuaBacSiDialog(bool isThem = true, const std::string& maBS = "");
     void themSuaPhongDialog(bool isThem = true, const std::string& maPhong = "");
     void phanCongDialog();
     void raVienDialog();
+    void xuatHoaDonDialog(const std::string& maBN, double chiPhi, int soNgay);
 
-    // Helpers
-    bool checkFilterBenhNhan(std::shared_ptr<BenhNhan> bn);
-    bool checkFilterBacSi(std::shared_ptr<BacSi> bs);
+    bool checkFilterBenhNhan(const std::shared_ptr<BenhNhan>& bn) const;      // Thêm const + &
+    bool checkFilterBacSi(const std::shared_ptr<BacSi>& bs) const;           // Thêm const + &
+    bool checkFilterXuatVien(const std::shared_ptr<BenhNhan>& bn) const;
 
 private slots:
-    // Slots BN
     void onThemBenhNhan();
     void onSuaBenhNhan();
     void onXoaBenhNhan();
     void onXuatBenhNhan();
     void onFilterBenhNhan();
 
-    // Slots BS
     void onThemBacSi();
     void onSuaBacSi();
     void onXoaBacSi();
     void onXuatBacSi();
     void onFilterBacSi();
 
-    // Slots Phòng
     void onThemPhong();
     void onSuaPhong();
     void onXoaPhong();
     void onXuatPhong();
 
-    // Slots Điều trị
     void onPhanCong();
     void onRaVien();
 
-    // Slots Thống kê
+    void onFilterXuatVien();
+    void onXuatDanhSachXuatVien();
+    void onXemChiTietXuatVien();
+
     void onThongKe();
 
 private:
     QuanLyBenhVien qlbv;
 
-    // UI elements
     QTabWidget* tabWidget;
 
     // Tab BN
@@ -360,17 +384,31 @@ private:
     QPushButton* btnXoaPhong;
     QPushButton* btnXuatPhong;
 
-    // Tab Điều trị
+    // Tab điều trị
     QWidget* dieuTriTab;
-    QListWidget* listBenhNhanChuaPhanCong;
-    QListWidget* listBenhNhanDaPhanCong;
+    QTableWidget* tableBenhNhanChuaPhanCong;
+    QTableWidget* tableBenhNhanDaPhanCong;
     QPushButton* btnPhanCong;
     QPushButton* btnRaVien;
+    QLineEdit* searchDieuTriInput;
 
-    // Tab Thống kê
+    // Tab xuất viện
+    QWidget* xuatVienTab;
+    QTableWidget* xuatVienTable;
+    QLineEdit* searchXuatVienInput;
+    QComboBox* filterXuatVienCombo;
+    QPushButton* btnXuatDSXuatVien;
+    QPushButton* btnXemChiTietXV;
+
+    // Tab thống kê
     QWidget* thongKeTab;
     QTextEdit* thongKeOutput;
     QPushButton* btnThongKe;
+
+    QComboBox *filterBenhLyCombo;
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 };
 
 #endif // MAINWINDOW_H
